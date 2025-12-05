@@ -8,15 +8,11 @@ const { sendEmail } = require("../utils/sendEmail");
 
 exports.create = TryCatch(async (req, res) => {
   const userDetails = req.body;
-  const totalUsers = await User.find().countDocuments();
-  const nonSuperUserCount = await User.countDocuments({ isSuper: false });
-
-  let isSuper = false;
+  // const totalUsers = await User.find().countDocuments();
+  // const nonSuperUserCount = await User.countDocuments({ isSuper: false });
   let employeeId = null;
   // If it is the first user then make it the super admin
-  if (totalUsers === 0) {
-    isSuper = true;
-  } else {
+  if(!userDetails?.isSuper) {
     const nonSuperUserCount = await User.countDocuments({ isSuper: false });
     const prefix =
       userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
@@ -28,7 +24,7 @@ exports.create = TryCatch(async (req, res) => {
     throw new ErrorHandler("Maximum limit of 100 employees reached", 403);
   }
 
-  const user = await User.create({ ...userDetails, isSuper, employeeId });
+  const user = await User.create({ ...userDetails, employeeId });
   user.password = undefined;
 
   let otp = generateOTP(4);
@@ -54,6 +50,8 @@ exports.create = TryCatch(async (req, res) => {
     user,
   });
 });
+
+
 exports.verifyUser = TryCatch(async (req, res) => {
   const { email } = req.body;
   await OTP.findOneAndDelete({ email });
