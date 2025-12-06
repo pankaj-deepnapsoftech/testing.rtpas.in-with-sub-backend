@@ -17,7 +17,8 @@ const PartiesSchema = new Schema(
     company_name: { type: String, default: "" },
     parties_type: { type: String, required: true, trim: true },
     contact_person_name:{type:String},
-    approved: { type: Boolean, default: false }
+    approved: { type: Boolean, default: false },
+    admin_id:{type:String, required:true},
   },
   { timestamps: true }
 );

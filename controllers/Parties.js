@@ -10,9 +10,17 @@ const { generateBulkCustomerIds } = require("../utils/generateProductId");
 const generateCustomerId = async (partyType, companyName, consigneeName) => {
   let prefix = "";
 
-  if (partyType === "Company" && typeof companyName === "string" && companyName.trim()) {
+  if (
+    partyType === "Company" &&
+    typeof companyName === "string" &&
+    companyName.trim()
+  ) {
     prefix = companyName.trim().substring(0, 2).toUpperCase();
-  } else if (Array.isArray(consigneeName) && consigneeName.length && typeof consigneeName[0] === "string") {
+  } else if (
+    Array.isArray(consigneeName) &&
+    consigneeName.length &&
+    typeof consigneeName[0] === "string"
+  ) {
     prefix = consigneeName[0].trim().substring(0, 2).toUpperCase();
   } else if (typeof consigneeName === "string" && consigneeName.trim()) {
     prefix = consigneeName.trim().substring(0, 2).toUpperCase();
@@ -21,7 +29,7 @@ const generateCustomerId = async (partyType, companyName, consigneeName) => {
   }
 
   const lastParty = await PartiesModels.findOne({
-    cust_id: { $regex: `^${prefix}` }
+    cust_id: { $regex: `^${prefix}` },
   }).sort({ createdAt: -1 });
 
   let nextId = 1;
@@ -40,7 +48,12 @@ exports.CreateParties = TryCatch(async (req, res) => {
   const cust_id = await generateCustomerId(type, company_name, consignee_name);
 
   const isAdmin = !!req.user?.isSuper;
-  const result = await PartiesModels.create({ ...data, cust_id, approved: isAdmin });
+  const result = await PartiesModels.create({
+    ...data,
+    cust_id,
+    approved: isAdmin,
+    admin_id: req.user._id,
+  });
   console.log(result);
   return res.status(201).json({
     message: "Party added successfully",
@@ -53,7 +66,7 @@ exports.GetParties = TryCatch(async (req, res) => {
   const pages = parseInt(page) || 1;
   const limits = parseInt(limit) || 10;
   const skip = (pages - 1) * limits;
-  const match = req.user?.isSuper ? {} : { approved: true };
+  const match = req.user?.isSuper ? {} : { admin_id: req.user._id };
   const totalData = await PartiesModels.find(match).countDocuments();
   const data = await PartiesModels.find(match)
     .sort({ _id: -1 })
@@ -73,6 +86,10 @@ exports.DeleteParties = TryCatch(async (req, res) => {
     throw new ErrorHandler(" Party not found ", 400);
   }
 
+  if (!req.user.isSuper && find.admin_id !== req.user._id.toString()) {
+    throw new ErrorHandler("You are not authorized to delete this party", 403);
+  }
+
   await PartiesModels.findByIdAndDelete(id);
   return res.status(200).json({
     message: "Party Deleted",
@@ -88,11 +105,19 @@ exports.UpdateParties = TryCatch(async (req, res) => {
     throw new ErrorHandler("Party not registered", 400);
   }
 
+  if (!req.user.isSuper && find.admin_id !== req.user._id.toString()) {
+    throw new ErrorHandler("You are not authorized to update this party", 403);
+  }
+
   const nextType = data.type ?? find.type;
   const nextCompanyName = data.company_name ?? find.company_name;
   const nextConsigneeName = data.consignee_name ?? find.consignee_name;
 
-  const cust_id = await generateCustomerId(nextType, nextCompanyName, nextConsigneeName);
+  const cust_id = await generateCustomerId(
+    nextType,
+    nextCompanyName,
+    nextConsigneeName
+  );
 
   const updated = await PartiesModels.findByIdAndUpdate(
     id,
@@ -107,7 +132,10 @@ exports.UpdateParties = TryCatch(async (req, res) => {
 });
 
 exports.GetUnapprovedParties = TryCatch(async (req, res) => {
-  const data = await PartiesModels.find({ approved: false }).sort({ _id: -1 });
+  const match = req.user?.isSuper
+    ? { approved: false }
+    : { approved: false, admin_id: req.user._id };
+  const data = await PartiesModels.find(match).sort({ _id: -1 });
   return res.status(200).json({
     message: "Unapproved parties",
     data,
@@ -125,7 +153,10 @@ exports.bulkUploadHandler = async (req, res) => {
     } else if (ext === ".xlsx") {
       parsedData = parseExcelFile(req.file.path);
     } else {
-      throw new ErrorHandler("Unsupported file type. Please upload .csv or .xlsx", 400);
+      throw new ErrorHandler(
+        "Unsupported file type. Please upload .csv or .xlsx",
+        400
+      );
     }
 
     fs.unlink(req.file.path, () => {}); // Clean up uploaded file
@@ -134,11 +165,14 @@ exports.bulkUploadHandler = async (req, res) => {
 
     const processedParties = [];
     for (const party of parsedData) {
-
-      processedParties.push({ ...party });
+      processedParties.push({
+        ...party,
+        admin_id: req.user._id,
+        approved: !!req.user.isSuper,
+      });
     }
 
-    const partiesData = await generateBulkCustomerIds(processedParties)
+    const partiesData = await generateBulkCustomerIds(processedParties);
 
     await PartiesModels.insertMany(partiesData);
 
