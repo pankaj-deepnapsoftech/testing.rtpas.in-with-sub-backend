@@ -6,6 +6,7 @@ const path = require("path");
 const { parseExcelFile } = require("../utils/parseExcelFile");
 const { checkPartiesCsvValidity } = require("../utils/checkPartiesCsvValidity");
 const { generateBulkCustomerIds } = require("../utils/generateProductId");
+const { getAdminFilter } = require("../utils/adminFilter");
 
 const generateCustomerId = async (partyType, companyName, consigneeName) => {
   let prefix = "";
@@ -48,11 +49,14 @@ exports.CreateParties = TryCatch(async (req, res) => {
   const cust_id = await generateCustomerId(type, company_name, consignee_name);
 
   const isAdmin = !!req.user?.isSuper;
+
+  const adminId = req.user.admin_id || req.user._id;
+
   const result = await PartiesModels.create({
     ...data,
     cust_id,
     approved: isAdmin,
-    admin_id: req.user._id,
+    admin_id: adminId,
   });
   console.log(result);
   return res.status(201).json({
@@ -66,7 +70,9 @@ exports.GetParties = TryCatch(async (req, res) => {
   const pages = parseInt(page) || 1;
   const limits = parseInt(limit) || 10;
   const skip = (pages - 1) * limits;
-  const match = req.user?.isSuper ? {} : { admin_id: req.user._id };
+
+  const match = getAdminFilter(req.user);
+
   const totalData = await PartiesModels.find(match).countDocuments();
   const data = await PartiesModels.find(match)
     .sort({ _id: -1 })
@@ -86,7 +92,11 @@ exports.DeleteParties = TryCatch(async (req, res) => {
     throw new ErrorHandler(" Party not found ", 400);
   }
 
-  if (!req.user.isSuper && find.admin_id !== req.user._id.toString()) {
+  const userAdminId = req.user.admin_id
+    ? req.user.admin_id.toString()
+    : req.user._id.toString();
+
+  if (!req.user.isSuper && find.admin_id.toString() !== userAdminId) {
     throw new ErrorHandler("You are not authorized to delete this party", 403);
   }
 
@@ -105,7 +115,11 @@ exports.UpdateParties = TryCatch(async (req, res) => {
     throw new ErrorHandler("Party not registered", 400);
   }
 
-  if (!req.user.isSuper && find.admin_id !== req.user._id.toString()) {
+  const userAdminId = req.user.admin_id
+    ? req.user.admin_id.toString()
+    : req.user._id.toString();
+
+  if (!req.user.isSuper && find.admin_id.toString() !== userAdminId) {
     throw new ErrorHandler("You are not authorized to update this party", 403);
   }
 
@@ -132,9 +146,9 @@ exports.UpdateParties = TryCatch(async (req, res) => {
 });
 
 exports.GetUnapprovedParties = TryCatch(async (req, res) => {
-  const match = req.user?.isSuper
-    ? { approved: false }
-    : { approved: false, admin_id: req.user._id };
+  const adminFilter = getAdminFilter(req.user);
+  const match = { ...adminFilter, approved: false };
+
   const data = await PartiesModels.find(match).sort({ _id: -1 });
   return res.status(200).json({
     message: "Unapproved parties",
@@ -162,11 +176,13 @@ exports.bulkUploadHandler = async (req, res) => {
 
     await checkPartiesCsvValidity(parsedData);
 
+    const adminId = req.user.admin_id || req.user._id;
+
     const processedParties = [];
     for (const party of parsedData) {
       processedParties.push({
         ...party,
-        admin_id: req.user._id,
+        admin_id: adminId,
         approved: !!req.user.isSuper,
       });
     }
