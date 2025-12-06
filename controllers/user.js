@@ -2,29 +2,78 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 const User = require("../models/user");
+const UserRole = require("../models/userRole");
 const OTP = require("../models/otp");
 const { generateOTP } = require("../utils/generateOTP");
 const { sendEmail } = require("../utils/sendEmail");
+const { getAdminIdForCreation } = require("../utils/adminFilter");
 
 exports.create = TryCatch(async (req, res) => {
   const userDetails = req.body;
-  // const totalUsers = await User.find().countDocuments();
-  // const nonSuperUserCount = await User.countDocuments({ isSuper: false });
   let employeeId = null;
-  // If it is the first user then make it the super admin
-  if(!userDetails?.isSuper) {
+  let roleId = null;
+
+  // Handle role assignment
+  // if (userDetails.role) {
+  //   const mongoose = require('mongoose');
+  //   
+  //   // Check if role is a valid ObjectId format
+  //   if (mongoose.Types.ObjectId.isValid(userDetails.role)) {
+  //     // It's an ObjectId, validate it exists in database
+  //     const role = await UserRole.findById(userDetails.role);
+  //     if (role) {
+  //       roleId = role._id;
+  //     } else if (!userDetails.isSuper) {
+  //       // Role not found and user is not super admin
+  //       throw new ErrorHandler(`Role "${userDetails.role}" not found. Please create the role first.`, 400);
+  //     }
+  //   } else {
+  //     // It's a role name string, find by name
+  //     const role = await UserRole.findOne({ 
+  //       role: { $regex: new RegExp(`^${userDetails.role}$`, 'i') } 
+  //     });
+  //     if (role) {
+  //       roleId = role._id;
+  //     } else if (!userDetails.isSuper) {
+  //       // Only require role for non-super users (employees/managers)
+  //       throw new ErrorHandler(`Role "${userDetails.role}" not found. Please create the role first.`, 400);
+  //     }
+  //   }
+  //   // Super admins can be created without a role
+  // }
+
+  // Generate employeeId only for non-super users (employees)
+  if (!userDetails?.isSuper) {
     const nonSuperUserCount = await User.countDocuments({ isSuper: false });
+    // If the non-super user count exceeds 100, throw an error
+    if (nonSuperUserCount >= 100) {
+      throw new ErrorHandler("Maximum limit of 100 employees reached", 403);
+    }
     const prefix =
       userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
     const idNumber = String(nonSuperUserCount + 1).padStart(4, "0");
     employeeId = `${prefix}${idNumber}`;
   }
-  // If the non-super user count exceeds 100, throw an error
-  if (nonSuperUserCount >= 100) {
-    throw new ErrorHandler("Maximum limit of 100 employees reached", 403);
+
+  // Prepare user data for creation
+  const userData = { ...userDetails };
+  // if (roleId) {
+  //   userData.role = roleId;
+  // }
+  if (employeeId) {
+    userData.employeeId = employeeId;
   }
 
-  const user = await User.create({ ...userDetails, employeeId });
+  // Set admin_id for employees (only if not super admin and if req.user exists)
+  // If creating employee from authenticated route, set admin_id to current user
+  if (!userDetails?.isSuper && req.user && req.user._id) {
+    userData.admin_id = req.user._id;
+  } else if (!userDetails?.isSuper && req.user) {
+    // Use adminFilter utility for consistency
+    userData.admin_id = getAdminIdForCreation(req.user);
+  }
+
+  const user = await User.create(userData);
   user.password = undefined;
 
   let otp = generateOTP(4);
@@ -127,6 +176,12 @@ exports.employeeDetails = TryCatch(async (req, res) => {
   const user = await User.findById(userId).populate("role");
   if (!user) {
     throw new ErrorHandler("User doesn't exist", 400);
+  }
+
+  // Check if user can access this employee (admin filtering)
+  const { canAccessRecord } = require("../utils/adminFilter");
+  if (!canAccessRecord(req.user, user, "admin_id")) {
+    throw new ErrorHandler("You are not authorized to access this employee", 403);
   }
 
   res.status(200).json({
@@ -341,7 +396,18 @@ exports.resendOtp = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const users = await User.find({}).populate("role");
+  const { getAdminFilter } = require("../utils/adminFilter");
+  
+  // Get filter based on admin - super admin sees all, regular admin sees only their employees
+  const filter = getAdminFilter(req.user);
+  
+  // Only show employees (non-super users) unless super admin wants to see all
+  // For regular admins, show only their employees
+  const queryFilter = req.user?.isSuper 
+    ? { isSuper: false } // Super admin sees all employees
+    : { ...filter, isSuper: false }; // Regular admin sees only their employees
+  
+  const users = await User.find(queryFilter).populate("role");
   res.status(200).json({
     status: 200,
     success: true,
