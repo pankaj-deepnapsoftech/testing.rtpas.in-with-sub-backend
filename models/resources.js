@@ -27,6 +27,7 @@ const resourcesSchema = new Schema(
       required: true,
       unique: true,
     },
+    admin_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
   },
   {
     timestamps: true,

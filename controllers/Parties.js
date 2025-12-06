@@ -142,7 +142,6 @@ exports.GetUnapprovedParties = TryCatch(async (req, res) => {
   });
 });
 
-// Bulk Upload Handler
 exports.bulkUploadHandler = async (req, res) => {
   const ext = path.extname(req.file.originalname).toLowerCase();
   let parsedData = [];
@@ -159,9 +158,9 @@ exports.bulkUploadHandler = async (req, res) => {
       );
     }
 
-    fs.unlink(req.file.path, () => {}); // Clean up uploaded file
+    fs.unlink(req.file.path, () => {});
 
-    await checkPartiesCsvValidity(parsedData); // Validate rows
+    await checkPartiesCsvValidity(parsedData);
 
     const processedParties = [];
     for (const party of parsedData) {

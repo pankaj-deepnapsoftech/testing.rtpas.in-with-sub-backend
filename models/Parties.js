@@ -16,9 +16,9 @@ const PartiesSchema = new Schema(
     type: { type: String, required: true, trim: true },
     company_name: { type: String, default: "" },
     parties_type: { type: String, required: true, trim: true },
-    contact_person_name:{type:String},
+    contact_person_name: { type: String },
     approved: { type: Boolean, default: false },
-    admin_id:{type:String, required:true},
+    admin_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
   },
   { timestamps: true }
 );
