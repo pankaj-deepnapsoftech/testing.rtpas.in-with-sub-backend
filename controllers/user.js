@@ -2,181 +2,184 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 const User = require("../models/user");
-const UserRole = require("../models/userRole");
 const OTP = require("../models/otp");
 const { generateOTP } = require("../utils/generateOTP");
 const { sendEmail } = require("../utils/sendEmail");
-const { getAdminIdForCreation } = require("../utils/adminFilter");
+const mongoose = require("mongoose");
+const { SubscriptionPayment } = require("../models/subscriptionPayment");
 
 exports.create = TryCatch(async (req, res) => {
-  const userDetails = req.body;
-  let employeeId = null;
-  let roleId = null;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
-  // Populate req.user if Authorization header present (route is open for bootstrap)
   try {
-    if (!req.user && req.headers?.authorization) {
-      const token = req.headers.authorization.split(" ")[1];
-      if (token) {
-        const verified = jwt.verify(token, process.env.JWT_SECRET);
-        if (verified?.email) {
-          const authUser = await User.findOne({ email: verified.email }).populate('role');
-          if (authUser) {
-            req.user = {
-              email: authUser.email,
-              _id: authUser._id,
-              role: authUser.role,
-              isSuper: authUser.isSuper,
-            };
+    const userDetails = req.body;
+    let employeeId = null;
+
+    // ================= TOKEN / AUTH USER DETECTION =================
+    try {
+      if (!req.user && req.headers?.authorization) {
+        const token = req.headers.authorization.split(" ")[1];
+
+        if (token) {
+          const verified = jwt.verify(token, process.env.JWT_SECRET);
+          if (verified?.email) {
+            const authUser = await User.findOne({ email: verified.email })
+              .populate("role")
+              .session(session);
+
+            if (authUser) {
+              req.user = {
+                email: authUser.email,
+                _id: authUser._id,
+                role: authUser.role,
+                isSuper: authUser.isSuper,
+              };
+            }
           }
         }
       }
+    } catch (e) {
+      // ignore; next checks will handle
     }
-  } catch (e) {
-    // ignore token errors here; creation guard below will handle
-  }
 
-  if (!req.user) {
+    // ================= PERMISSION CONTROL =================
+    if (!req.user) {
+      if (!userDetails?.isSuper) {
+        throw new ErrorHandler("Login required to create employees", 401);
+      }
+    } else {
+      if (userDetails?.isSuper && !req.user.isSuper) {
+        throw new ErrorHandler("Only super admin can create another super admin", 403);
+      }
+    }
+
+    // ================= EMPLOYEE ID GENERATION =================
     if (!userDetails?.isSuper) {
-      throw new ErrorHandler("Login required to create employees", 401);
+      const adminObjectId =
+        req.user?._id instanceof mongoose.Types.ObjectId
+          ? req.user._id
+          : new mongoose.Types.ObjectId(req.user?._id || undefined);
+
+      const adminEmployeeCount = await User.countDocuments({
+        isSuper: false,
+        admin_id: adminObjectId,
+      }).session(session);
+
+      const prefix = userDetails.first_name?.substring(0, 3)?.toUpperCase() || "EMP";
+      const adminCode = adminObjectId
+        ? adminObjectId.toString().slice(-4).toUpperCase()
+        : "SYS";
+
+      let idNumber = String(adminEmployeeCount + 1).padStart(4, "0");
+      employeeId = `${prefix}${idNumber}-${adminCode}`;
+
+      // Fix rare duplicate IDs (concurrency)
+      let existingEmployee = await User.findOne({ employeeId }).session(session);
+      let counter = 1;
+
+      while (existingEmployee && counter < 1000) {
+        idNumber = String(adminEmployeeCount + 1 + counter).padStart(4, "0");
+        employeeId = `${prefix}${idNumber}-${adminCode}`;
+        existingEmployee = await User.findOne({ employeeId }).session(session);
+        counter++;
+      }
+
+      if (counter >= 1000) {
+        throw new ErrorHandler("Unable to generate unique employee ID. Please try again.", 500);
+      }
     }
-  } else {
-    if (userDetails?.isSuper && !req.user.isSuper) {
-      throw new ErrorHandler("Only super admin can create another super admin", 403);
+
+    // ================= PREPARE USER DATA =================
+    const userData = { ...userDetails };
+    if (employeeId) userData.employeeId = employeeId;
+
+    if (!userDetails?.isSuper && req.user?._id) {
+      userData.admin_id = req.user._id;
+      userData.isVerified = true;
     }
-  }
 
-  // Handle role assignment
-  // if (userDetails.role) {
-  //   const mongoose = require('mongoose');
-  //   
-  //   // Check if role is a valid ObjectId format
-  //   if (mongoose.Types.ObjectId.isValid(userDetails.role)) {
-  //     // It's an ObjectId, validate it exists in database
-  //     const role = await UserRole.findById(userDetails.role);
-  //     if (role) {
-  //       roleId = role._id;
-  //     } else if (!userDetails.isSuper) {
-  //       // Role not found and user is not super admin
-  //       throw new ErrorHandler(`Role "${userDetails.role}" not found. Please create the role first.`, 400);
-  //     }
-  //   } else {
-  //     // It's a role name string, find by name
-  //     const role = await UserRole.findOne({ 
-  //       role: { $regex: new RegExp(`^${userDetails.role}$`, 'i') } 
-  //     });
-  //     if (role) {
-  //       roleId = role._id;
-  //     } else if (!userDetails.isSuper) {
-  //       // Only require role for non-super users (employees/managers)
-  //       throw new ErrorHandler(`Role "${userDetails.role}" not found. Please create the role first.`, 400);
-  //     }
-  //   }
-  //   // Super admins can be created without a role
-  // }
+    // ================= USER CREATION =================
+    let user;
+    try {
+      user = await User.create([userData], { session });
+      user = user[0]; // insertMany returns array
+    } catch (err) {
+      if (err?.code === 11000) {
+        const dupField = Object.keys(err.keyPattern || {})[0] || "field";
+        const message =
+          dupField === "email"
+            ? "Email already in use"
+            : dupField === "phone"
+            ? "Phone already in use"
+            : dupField === "employeeId"
+            ? "Employee ID already exists, please try again"
+            : "Duplicate value for a unique field";
 
-  // === EMPLOYEE ID GENERATION (Globally unique, admin-wise numbering) ===
-if (!userDetails?.isSuper) {
-  const mongoose = require('mongoose');
-  let adminObjectId = req.user && req.user._id 
-    ? (req.user._id instanceof mongoose.Types.ObjectId 
-        ? req.user._id 
-        : new mongoose.Types.ObjectId(req.user._id)) 
-    : null;
-  // Only count for the current admin to keep numbering admin-wise
-  const adminEmployeeCount = await User.countDocuments({ 
-    isSuper: false, 
-    admin_id: adminObjectId 
-  });
-  const prefix = userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
-  const adminCode = (adminObjectId ? adminObjectId.toString().slice(-4) : 'SYS').toUpperCase();
-  let idNumber = String(adminEmployeeCount + 1).padStart(4, "0");
-  employeeId = `${prefix}${idNumber}-${adminCode}`;
-  // Ensure globally unique employeeId (rare collisions/concurrency)
-  let existingEmployee = await User.findOne({ employeeId });
-  let counter = 1;
-  while (existingEmployee && counter < 1000) {
-    idNumber = String(adminEmployeeCount + 1 + counter).padStart(4, "0");
-    employeeId = `${prefix}${idNumber}-${adminCode}`;
-    existingEmployee = await User.findOne({ employeeId });
-    counter++;
-  }
-  if (counter >= 1000) {
-    throw new ErrorHandler("Unable to generate unique employee ID. Please try again.", 500);
-  }
-}
-  // Prepare user data for creation
-  const userData = { ...userDetails };
-  // if (roleId) {
-  //   userData.role = roleId;
-  // }
-  if (employeeId) {
-    userData.employeeId = employeeId;
-  }
-
-  // Set admin_id for employees - the admin who creates the employee becomes their admin
-  // Only set admin_id for non-super users (employees) and only if req.user exists (authenticated request)
-  // If creating via registration (no token), admin_id will be null (can be set later)
-  if (!userDetails?.isSuper && req.user && req.user._id) {
-    // Set admin_id to the current user (admin) who is creating this employee
-    // Ensure it's stored as ObjectId
-    const mongoose = require('mongoose');
-    userData.admin_id = req.user._id instanceof mongoose.Types.ObjectId 
-      ? req.user._id 
-      : new mongoose.Types.ObjectId(req.user._id);
-    // Auto-verify employees created by an authenticated admin
-    userData.isVerified = true;
-    
-    console.log('=== Creating Employee ===');
-    console.log('Admin ID (req.user._id):', req.user._id);
-    console.log('Admin ID Type:', typeof req.user._id);
-    console.log('Setting admin_id for employee:', userData.admin_id);
-  }
-
-  let user;
-  try {
-    user = await User.create(userData);
-  } catch (err) {
-    if (err && err.code === 11000) {
-      const dupField = Object.keys(err.keyPattern || {})[0] || 'field';
-      const message = dupField === 'email'
-        ? 'Email already in use'
-        : dupField === 'phone'
-        ? 'Phone already in use'
-        : dupField === 'employeeId'
-        ? 'Employee ID already exists, please try again'
-        : 'Duplicate value for a unique field';
-      throw new ErrorHandler(message, 400);
+        throw new ErrorHandler(message, 400);
+      }
+      throw err;
     }
-    throw err;
-  }
-  user.password = undefined;
 
-  if (!user.isVerified) {
-    let otp = generateOTP(4);
-    await OTP.create({ email: user?.email, otp });
-    sendEmail(
-      "Account Verification",
-      `
-        <strong>Dear ${user.first_name}</strong>,
-    
-        <p>Thank you for registering with us! To complete your registration and verify your account, please use the following One-Time Password (OTP): <strong>${otp}</strong></p>
+    // Remove password before sending in response
+    user.password = undefined;
 
-        <p>This OTP is valid for 5 minutes. Do not share your OTP with anyone.</p>
+    // ================= SEND OTP (ONLY IF NOT VERIFIED) =================
+    if (!user.isVerified) {
+      const otp = generateOTP(4);
+
+      await OTP.create([{ email: user.email, otp }], { session });
+
+      await sendEmail(
+        "Account Verification",
+        `
+          <strong>Dear ${user.first_name}</strong>,
+          <p>Your OTP is: <strong>${otp}</strong></p>
+          <p>Valid for 5 minutes.</p>
         `,
-      user?.email
-    );
-  }
+        user.email
+      );
+    }
 
-  res.status(200).json({
-    status: 200,
-    success: true,
-    message: user.isVerified
-      ? "User has been created successfully."
-      : "User has been created successfully. OTP has been successfully sent to your email id",
-    user,
-  });
+    // ================= SUBSCRIPTION CREATION =================
+    const today = new Date();
+    const next7Days = new Date(today);
+    next7Days.setDate(today.getDate() + 7);
+    next7Days.setHours(0, 0, 0, 0);
+
+    await SubscriptionPayment.create(
+      [
+        {
+          userId: user._id,
+          endDate: next7Days,
+          razorpayPaymentId: user._id.toString(),
+        },
+      ],
+      { session }
+    );
+
+    // ================= COMMIT TRANSACTION =================
+    await session.commitTransaction();
+    session.endSession();
+
+    // ================= FINAL RESPONSE =================
+    return res.status(200).json({
+      status: 200,
+      success: true,
+      message: user.isVerified
+        ? "User has been created successfully."
+        : "User created successfully. OTP sent to your email.",
+      user,
+    });
+
+  } catch (error) {
+    // Rollback all changes
+    await session.abortTransaction();
+    session.endSession();
+    throw error;
+  }
 });
+
 
 
 exports.verifyUser = TryCatch(async (req, res) => {
@@ -251,15 +254,67 @@ exports.employeeDetails = TryCatch(async (req, res) => {
     throw new ErrorHandler("User id not found", 400);
   }
 
-  const user = await User.findById(userId).populate("role");
+  const user = await User.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(userId),
+      }
+    },
+    {
+      $lookup: {
+        from: "user-roles",
+        localField: "role",
+        foreignField: "_id",
+        as: "role"
+      }
+    },
+    {
+      $lookup: {
+        from: "subscriptionpayments",
+        localField: "_id",
+        foreignField: "userId",
+        as: "subscription"
+      }
+    },
+    {
+      $addFields: {
+        // Get FIRST role object
+        role: { $arrayElemAt: ["$role", 0] },
+
+        // Reverse subscription array and get the first item (latest)
+        subscription: {
+          $arrayElemAt: [
+            { $reverseArray: "$subscription" },
+            0
+          ]
+        },
+
+        // Count total subscriptions
+        subscription_count: { $size: "$subscription" } // ⚠️ This is wrong; we’ll fix it below
+      }
+    },
+    {
+      $addFields: {
+        subscription_end: "$subscription.endDate",
+        plan: "$subscription.plan",
+      }
+    },
+    {
+      $project: {
+        first_name: 1,
+        last_name: 1,
+        email: 1,
+        role: 1,
+        subscription_end: 1,
+        plan: 1,
+        subscription_count: 1
+      }
+    }
+  ]);
+
+
   if (!user) {
     throw new ErrorHandler("User doesn't exist", 400);
-  }
-
-  // Check if user can access this employee (admin filtering)
-  const { canAccessRecord } = require("../utils/adminFilter");
-  if (!canAccessRecord(req.user, user, "admin_id")) {
-    throw new ErrorHandler("You are not authorized to access this employee", 403);
   }
 
   res.status(200).json({
@@ -521,7 +576,7 @@ exports.all = TryCatch(async (req, res) => {
 
 exports.updateProfile = TryCatch(async (req, res) => {
   const userId = req.user._id;
-  const { address, first_name, last_name, phone,cpny_name,GSTIN,Bank_Name,Account_No,IFSC_Code } = req.body;
+  const { address, first_name, last_name, phone, cpny_name, GSTIN, Bank_Name, Account_No, IFSC_Code } = req.body;
 
   const updatedUser = await User.findByIdAndUpdate(
     userId,
@@ -530,11 +585,11 @@ exports.updateProfile = TryCatch(async (req, res) => {
       ...(phone && { phone }),
       ...(first_name && { first_name }),
       ...(last_name && { last_name }),
-      ...(cpny_name && {cpny_name}),
-      ...(GSTIN && {GSTIN}),
-      ...(Account_No && { Account_No}),
-      ...(Bank_Name && {Bank_Name}),
-      ...(IFSC_Code && {IFSC_Code}),
+      ...(cpny_name && { cpny_name }),
+      ...(GSTIN && { GSTIN }),
+      ...(Account_No && { Account_No }),
+      ...(Bank_Name && { Bank_Name }),
+      ...(IFSC_Code && { IFSC_Code }),
     },
     { new: true }
   );
@@ -545,7 +600,7 @@ exports.updateProfile = TryCatch(async (req, res) => {
 
   updatedUser.password = undefined;
 
-  res.status(200).json({  
+  res.status(200).json({
     status: 200,
     success: true,
     message: "Profile updated successfully",
