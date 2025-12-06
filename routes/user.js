@@ -21,7 +21,7 @@ const { isAuthenticated } = require("../middlewares/isAuthenticated");
 const { isSuper } = require("../middlewares/isSuper");
 const router = express.Router();
 
-router.post("/", create);
+router.post("/", isAuthenticated, create);
 router.get("/all", isAuthenticated, all);
 // router.get("/all", isAuthenticated, isSuper, all);
 router.post("/verify", verifyOTP, verifyUser);

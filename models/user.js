@@ -31,6 +31,11 @@ const userSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    admin_id: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
     employeeId: {
       type: String,
       unique: true,
