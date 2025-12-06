@@ -270,7 +270,7 @@ exports.employeeDetails = TryCatch(async (req, res) => {
     throw new ErrorHandler("User id not found", 400);
   }
 
-  const user = await User.aggregate([
+  const aggregated = await User.aggregate([
     {
       $match: {
         _id: new mongoose.Types.ObjectId(userId),
@@ -294,19 +294,17 @@ exports.employeeDetails = TryCatch(async (req, res) => {
     },
     {
       $addFields: {
-        // Get FIRST role object
         role: { $arrayElemAt: ["$role", 0] },
-
-        // Reverse subscription array and get the first item (latest)
+        subscription_count: {
+          $size: { $ifNull: ["$subscription", []] }
+        }
+      }
+    },
+    {
+      $addFields: {
         subscription: {
-          $arrayElemAt: [
-            { $reverseArray: "$subscription" },
-            0
-          ]
-        },
-
-        // Count total subscriptions
-        subscription_count: { $size: "$subscription" } // ⚠️ This is wrong; we’ll fix it below
+          $arrayElemAt: [ { $reverseArray: "$subscription" }, 0 ]
+        }
       }
     },
     {
@@ -320,6 +318,9 @@ exports.employeeDetails = TryCatch(async (req, res) => {
         first_name: 1,
         last_name: 1,
         email: 1,
+        phone: 1,
+        isVerified: 1,
+        employeeId: 1,
         role: 1,
         subscription_end: 1,
         plan: 1,
@@ -330,14 +331,15 @@ exports.employeeDetails = TryCatch(async (req, res) => {
   ]);
 
 
-  if (!user) {
+  const result = Array.isArray(aggregated) ? aggregated[0] : null;
+  if (!result) {
     throw new ErrorHandler("User doesn't exist", 400);
   }
 
   res.status(200).json({
     status: 200,
     success: true,
-    user,
+    user: result,
   });
 });
 
