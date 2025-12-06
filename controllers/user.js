@@ -323,7 +323,8 @@ exports.employeeDetails = TryCatch(async (req, res) => {
         role: 1,
         subscription_end: 1,
         plan: 1,
-        subscription_count: 1
+        subscription_count: 1,
+        isSuper:1
       }
     }
   ]);
