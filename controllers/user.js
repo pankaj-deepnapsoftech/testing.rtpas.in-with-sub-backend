@@ -61,10 +61,21 @@ exports.create = TryCatch(async (req, res) => {
           ? req.user._id
           : new mongoose.Types.ObjectId(req.user?._id || undefined);
 
+      const latestSubscription = await SubscriptionPayment.findOne({ userId: adminObjectId })
+        .sort({ createdAt: -1 });
+      const allowedUsers = Number(latestSubscription?.allowedUsers || 0);
+
       const adminEmployeeCount = await User.countDocuments({
         isSuper: false,
         admin_id: adminObjectId,
       }).session(session);
+
+      if (allowedUsers > 0 && adminEmployeeCount >= allowedUsers) {
+        throw new ErrorHandler(
+          `Employee creation limit reached (${allowedUsers}). Upgrade or increase allowed users.`,
+          403
+        );
+      }
 
       const prefix = userDetails.first_name?.substring(0, 3)?.toUpperCase() || "EMP";
       const adminCode = adminObjectId

@@ -11,6 +11,7 @@ const SubscriptionOrderSchema = new Schema({
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date },
   period: { type: String, enum: ['month', 'year',"week"], default: 'week' },
+  allowedUsers: { type: Number, default: 0 },
 }, { timestamps: true });
 
 const SubscriptionOrder = mongoose.model('SubscriptionOrder', SubscriptionOrderSchema);

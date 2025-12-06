@@ -20,6 +20,7 @@ exports.createOrder = TryCatch(async (req, res) => {
   const userId = req.user?._id || null;
   const plan = req.body.plan || 'RTPAS';
   const period = req.body.period || 'month';
+  const allowedUsers = Number(req.body?.allowedUsers || 0);
 
   // Calculate end date based on period
   const startDate = new Date();
@@ -84,6 +85,7 @@ exports.createOrder = TryCatch(async (req, res) => {
     startDate,
     endDate,
     period,
+    allowedUsers,
   });
 
   return res.status(StatusCodes.CREATED).json({
@@ -131,6 +133,7 @@ exports.verifyPayment = TryCatch(async (req, res) => {
     startDate: order?.startDate || new Date(),
     endDate: order?.endDate,
     period: order?.period || 'month',
+    allowedUsers: order?.allowedUsers || 0,
   });
 
   if (order?.userId) {
