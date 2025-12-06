@@ -192,6 +192,8 @@ exports.verifyUser = TryCatch(async (req, res) => {
     message: "Your account has been verified successfully",
   });
 });
+
+
 exports.update = TryCatch(async (req, res) => {
   const { _id, role } = req.body;
 
@@ -216,6 +218,8 @@ exports.update = TryCatch(async (req, res) => {
     user,
   });
 });
+
+
 exports.remove = TryCatch(async (req, res) => {
   const userId = req.user._id;
 
@@ -323,6 +327,8 @@ exports.employeeDetails = TryCatch(async (req, res) => {
     user,
   });
 });
+
+
 exports.loginWithPassword = TryCatch(async (req, res) => {
   const { email, password } = req.body;
 
@@ -361,6 +367,8 @@ exports.loginWithPassword = TryCatch(async (req, res) => {
     token,
   });
 });
+
+
 exports.loginWithToken = TryCatch(async (req, res) => {
   const token = req.headers?.authorization?.split(" ")[1];
 
@@ -379,6 +387,7 @@ exports.loginWithToken = TryCatch(async (req, res) => {
     const user = await User.findOne({ email: verified?.email }).populate(
       "role"
     );
+ 
     if (!user) {
       throw new ErrorHandler("User doesn't exist", 401);
     }
@@ -402,6 +411,8 @@ exports.loginWithToken = TryCatch(async (req, res) => {
   }
   throw new ErrorHandler("Session expired, login again", 401);
 });
+
+
 exports.resetPasswordRequest = TryCatch(async (req, res) => {
   const { email } = req.body;
   if (!email) {
@@ -474,6 +485,7 @@ exports.resetPassword = TryCatch(async (req, res) => {
     message: "Your password has been updated successfully",
   });
 });
+
 exports.resendOtp = TryCatch(async (req, res) => {
   const { email } = req.body;
   if (!email) {
@@ -528,6 +540,7 @@ exports.resendOtp = TryCatch(async (req, res) => {
     message: "OTP has been successfully sent to your email id",
   });
 });
+
 exports.all = TryCatch(async (req, res) => {
   const mongoose = require('mongoose');
   

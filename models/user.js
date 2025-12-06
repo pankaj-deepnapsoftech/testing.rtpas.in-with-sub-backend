@@ -79,6 +79,10 @@ const userSchema = new Schema(
       type: String,
       default: "",
     },
+    administration:{
+      type:Boolean,
+      default:false
+    }
   },
   {
     timestamps: true,
