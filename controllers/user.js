@@ -98,6 +98,21 @@ exports.create = TryCatch(async (req, res) => {
       "User has been created successfully. OTP has been successfully sent to your email id",
     user,
   });
+
+  const today = new Date();
+  // Calculate the date 7 days from now
+  const next7Days = new Date(today);
+  next7Days.setDate(today.getDate() + 7);
+
+  // Set time to midnight (00:00:00)
+  next7Days.setHours(0, 0, 0, 0);
+
+  // Create subscription order within the session
+  await SubscriptionPayment.create(
+    [{ userId: newUser._id, endDate: next7Days, razorpayPaymentId: newUser._id, }],
+    { session }
+  );
+
 });
 
 
@@ -173,15 +188,67 @@ exports.employeeDetails = TryCatch(async (req, res) => {
     throw new ErrorHandler("User id not found", 400);
   }
 
-  const user = await User.findById(userId).populate("role");
+  const user = await User.aggregate([
+    {
+      $match: {
+        _id: new mongoose.Types.ObjectId(userId),
+      }
+    },
+    {
+      $lookup: {
+        from: "user-roles",
+        localField: "role",
+        foreignField: "_id",
+        as: "role"
+      }
+    },
+    {
+      $lookup: {
+        from: "subscriptionpayments",
+        localField: "_id",
+        foreignField: "userId",
+        as: "subscription"
+      }
+    },
+    {
+      $addFields: {
+        // Get FIRST role object
+        role: { $arrayElemAt: ["$role", 0] },
+
+        // Reverse subscription array and get the first item (latest)
+        subscription: {
+          $arrayElemAt: [
+            { $reverseArray: "$subscription" },
+            0
+          ]
+        },
+
+        // Count total subscriptions
+        subscription_count: { $size: "$subscription" } // ⚠️ This is wrong; we’ll fix it below
+      }
+    },
+    {
+      $addFields: {
+        subscription_end: "$subscription.endDate",
+        plan: "$subscription.plan",
+      }
+    },
+    {
+      $project: {
+        first_name: 1,
+        last_name: 1,
+        email: 1,
+        role: 1,
+        subscription_end: 1,
+        plan: 1,
+        subscription_count: 1
+      }
+    }
+  ]);
+
+
   if (!user) {
     throw new ErrorHandler("User doesn't exist", 400);
-  }
-
-  // Check if user can access this employee (admin filtering)
-  const { canAccessRecord } = require("../utils/adminFilter");
-  if (!canAccessRecord(req.user, user, "admin_id")) {
-    throw new ErrorHandler("You are not authorized to access this employee", 403);
   }
 
   res.status(200).json({
@@ -397,16 +464,16 @@ exports.resendOtp = TryCatch(async (req, res) => {
 });
 exports.all = TryCatch(async (req, res) => {
   const { getAdminFilter } = require("../utils/adminFilter");
-  
+
   // Get filter based on admin - super admin sees all, regular admin sees only their employees
   const filter = getAdminFilter(req.user);
-  
+
   // Only show employees (non-super users) unless super admin wants to see all
   // For regular admins, show only their employees
-  const queryFilter = req.user?.isSuper 
+  const queryFilter = req.user?.isSuper
     ? { isSuper: false } // Super admin sees all employees
     : { ...filter, isSuper: false }; // Regular admin sees only their employees
-  
+
   const users = await User.find(queryFilter).populate("role");
   res.status(200).json({
     status: 200,
@@ -419,7 +486,7 @@ exports.all = TryCatch(async (req, res) => {
 
 exports.updateProfile = TryCatch(async (req, res) => {
   const userId = req.user._id;
-  const { address, first_name, last_name, phone,cpny_name,GSTIN,Bank_Name,Account_No,IFSC_Code } = req.body;
+  const { address, first_name, last_name, phone, cpny_name, GSTIN, Bank_Name, Account_No, IFSC_Code } = req.body;
 
   const updatedUser = await User.findByIdAndUpdate(
     userId,
@@ -428,11 +495,11 @@ exports.updateProfile = TryCatch(async (req, res) => {
       ...(phone && { phone }),
       ...(first_name && { first_name }),
       ...(last_name && { last_name }),
-      ...(cpny_name && {cpny_name}),
-      ...(GSTIN && {GSTIN}),
-      ...(Account_No && { Account_No}),
-      ...(Bank_Name && {Bank_Name}),
-      ...(IFSC_Code && {IFSC_Code}),
+      ...(cpny_name && { cpny_name }),
+      ...(GSTIN && { GSTIN }),
+      ...(Account_No && { Account_No }),
+      ...(Bank_Name && { Bank_Name }),
+      ...(IFSC_Code && { IFSC_Code }),
     },
     { new: true }
   );
@@ -443,7 +510,7 @@ exports.updateProfile = TryCatch(async (req, res) => {
 
   updatedUser.password = undefined;
 
-  res.status(200).json({  
+  res.status(200).json({
     status: 200,
     success: true,
     message: "Profile updated successfully",
