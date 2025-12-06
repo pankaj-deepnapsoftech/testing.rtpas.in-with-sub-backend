@@ -2,6 +2,7 @@ const { Schema, model } = require("mongoose");
 
 const Purchases = new Schema(
   {
+    admin_id: { type: Schema.Types.ObjectId, ref: "User", index: true },
     user_id: { type: Schema.Types.ObjectId, ref: "User", required: true },
     order_id: { type: String, unique: true },
     party: {

@@ -2,6 +2,11 @@ const { Schema, model } = require("mongoose");
 
 const storeSchema = new Schema(
   {
+    admin_id: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
     name: {
       type: String,
       required: [true, "Store Name is a required field"],

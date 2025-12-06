@@ -1,6 +1,7 @@
 const { AssinedModel } = require("../models/Assined-to.model");
 const { Purchase } = require("../models/purchase");
 const { TryCatch, ErrorHandler } = require("../utils/error");
+const { getAdminFilter, getAdminIdForCreation } = require("../utils/adminFilter");
 
 const generateorderId = async () => {
   const lastParty = await Purchase.findOne().sort({ createdAt: -1 });
@@ -22,6 +23,7 @@ exports.create = TryCatch(async (req, res) => {
     const newData = {
       ...data,
       user_id: req?.user._id,
+      admin_id: getAdminIdForCreation(req.user),
       order_id,
       approved: false, // Always require approval, regardless of user role
       //   productFile: productFilePath,
@@ -54,12 +56,10 @@ exports.unapproved = TryCatch(async (req, res) => {
     ? req.user.role.permissions.includes("approval")
     : false;
   const canViewAllSales = isSuper || hasApprovalPermission;
-  const userMatch = canViewAllSales
-    ? {}
-    : { user_id: new mongoose.Types.ObjectId(req.user._id) };
+  const adminMatch = canViewAllSales ? {} : getAdminFilter(req.user);
 
   const data = await Purchase.aggregate([
-    { $match: { approved: false, ...userMatch } },
+    { $match: { approved: false, ...adminMatch } },
     {
       $lookup: {
         from: "products",
@@ -128,11 +128,11 @@ exports.bulkApprove = TryCatch(async (req, res) => {
 exports.update = TryCatch(async (req, res) => {
   const data = req.body;
   const { id } = req.params;
-  const find = await Purchase.findById(id);
+  const find = await Purchase.findOne({ _id: id, ...getAdminFilter(req.user) });
   if (!find) {
     throw new ErrorHandler("data not found", 400);
   }
-  await Purchase.findByIdAndUpdate(id, data);
+  await Purchase.findOneAndUpdate({ _id: id, ...getAdminFilter(req.user) }, data);
   return res.status(201).json({ message: "Purchase Order updated" });
 });
 
@@ -167,7 +167,7 @@ exports.Imagehandler = TryCatch(async (req, res) => {
     return res.status(400).json({ message: "Design file URL is required" });
   }
 
-  const find = await Purchase.findById(id);
+  const find = await Purchase.findOne({ _id: id, ...getAdminFilter(req.user) });
   if (!find) {
     return res.status(404).json({ message: "Sale not found" });
   }
@@ -191,12 +191,10 @@ exports.getAll = TryCatch(async (req, res) => {
   const limit = parseInt(req.query.limit) || 5;
   const skip = (page - 1) * limit;
   const isSuper = !!req.user?.isSuper;
-  const userMatch = isSuper
-    ? {}
-    : { user_id: new mongoose.Types.ObjectId(req.user._id) };
+  const adminMatch = isSuper ? {} : getAdminFilter(req.user);
 
   const data = await Purchase.aggregate([
-    { $match: { ...userMatch } }, // Show all sales (approved and unapproved) in Sales Management
+    { $match: { ...adminMatch } }, // Show all sales (approved and unapproved) in Sales Management
     {
       $lookup: {
         from: "boms",
