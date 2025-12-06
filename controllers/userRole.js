@@ -31,7 +31,7 @@ exports.create = TryCatch(async (req, res) => {
 
 
 
-  const createdRole = await UserRole.create({ ...role,permissions:[...data,...permis] });
+  const createdRole = await UserRole.create({ ...role, admin_id: req.user._id, permissions:[...data,...permis] });
   res.status(200).json({
     status: 200,
     success: true,
@@ -49,6 +49,9 @@ exports.edit = TryCatch(async (req, res) => {
   const userRole = await UserRole.findById(_id);
   if (!userRole) {
     throw new ErrorHandler("User role not found", 400);
+  }
+  if (userRole.admin_id?.toString() !== req.user._id?.toString()) {
+    throw new ErrorHandler("You are not authorized to update this role", 403);
   }
 
   const roleUpdated = await UserRole.findByIdAndUpdate(
@@ -74,6 +77,9 @@ exports.remove = TryCatch(async (req, res) => {
   if (!userRole) {
     throw new ErrorHandler("User role not found", 400);
   }
+  if (userRole.admin_id?.toString() !== req.user._id?.toString()) {
+    throw new ErrorHandler("You are not authorized to delete this role", 403);
+  }
   await userRole.deleteOne();
 
   res.status(200).json({
@@ -92,6 +98,9 @@ exports.details = TryCatch(async (req, res) => {
   if (!userRole) {
     throw new ErrorHandler("User role not found", 400);
   }
+  if (userRole.admin_id?.toString() !== req.user._id?.toString()) {
+    throw new ErrorHandler("You are not authorized to view this role", 403);
+  }
 
   res.status(200).json({
     status: 200,
@@ -100,7 +109,7 @@ exports.details = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const roles = await UserRole.find().sort({ 'updatedAt': -1 });
+  const roles = await UserRole.find({ admin_id: req.user._id }).sort({ 'updatedAt': -1 });
   res.status(200).json({
     status: 200,
     success: true,

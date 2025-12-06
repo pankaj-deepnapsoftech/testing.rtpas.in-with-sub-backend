@@ -6,7 +6,7 @@ const {upload} = require('../utils/upload');
 const router = express.Router();
 
 router.post('/', isAuthenticated, create);
-router.get('/all', all);
+router.get('/all', isAuthenticated, all);
 router.get('/unapproved', isAuthenticated,  unapproved);
 router.post("/bulk", isAuthenticated, upload.single('excel'), bulkUploadHandler);
 router.route('/:id')

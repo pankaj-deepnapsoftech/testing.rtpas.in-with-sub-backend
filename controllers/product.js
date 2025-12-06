@@ -6,6 +6,7 @@ const { checkProductCsvValidity } = require("../utils/checkProductCsvValidity");
 const BOMRawMaterial = require("../models/bom-raw-material");
 const ProductionProcess = require("../models/productionProcess");
 const BOM = require("../models/bom");
+const { getAdminFilter, getAdminIdForCreation } = require("../utils/adminFilter");
 const {
   generateProductId,
   generateProductIdsForBulk,
@@ -34,6 +35,7 @@ exports.create = TryCatch(async (req, res) => {
     ...productDetails,
     name: capitalizeWords(productDetails.name),
     product_id: generatedId,
+    admin_id: getAdminIdForCreation(req.user),
     approved: req.user.isSuper,
   });
   // console.log(product);
@@ -54,7 +56,7 @@ exports.update = TryCatch(async (req, res) => {
 
   const { _id } = productDetails;
 
-  let product = await Product.findById(_id);
+  let product = await Product.findOne({ _id, ...getAdminFilter(req.user) });
   if (!product) {
     throw new ErrorHandler("Product doesn't exist", 400);
   }
@@ -77,7 +79,7 @@ exports.update = TryCatch(async (req, res) => {
   }
 
   product = await Product.findOneAndUpdate(
-    { _id },
+    { _id, ...getAdminFilter(req.user) },
     {
       ...productDetails,
       ...extraUpdates,
@@ -98,7 +100,7 @@ exports.update = TryCatch(async (req, res) => {
 
 exports.remove = TryCatch(async (req, res) => {
   const { _id } = req.body;
-  const product = await Product.findByIdAndDelete(_id);
+  const product = await Product.findOneAndDelete({ _id, ...getAdminFilter(req.user) });
   if (!product) {
     throw new ErrorHandler("Product doesn't exist", 400);
   }
@@ -120,6 +122,7 @@ exports.bulkDelete = TryCatch(async (req, res) => {
   // Delete all products with the provided IDs
   const deleteResult = await Product.deleteMany({
     _id: { $in: productIds },
+    ...getAdminFilter(req.user),
   });
 
   if (deleteResult.deletedCount === 0) {
@@ -137,7 +140,7 @@ exports.bulkDelete = TryCatch(async (req, res) => {
 });
 exports.details = TryCatch(async (req, res) => {
   const { id } = req.params;
-  const product = await Product.findById(id).populate("store");
+  const product = await Product.findOne({ _id: id, ...getAdminFilter(req.user) }).populate("store");
   if (!product) {
     throw new ErrorHandler("Product doesn't exist", 400);
   }
@@ -154,11 +157,12 @@ exports.all = TryCatch(async (req, res) => {
     products = await Product.find({
       approved: true,
       inventory_category: category,
+      ...getAdminFilter(req.user),
     })
       .sort({ updatedAt: -1 })
       .populate("store");
   } else {
-    products = await Product.find({ approved: true })
+    products = await Product.find({ approved: true, ...getAdminFilter(req.user) })
       .sort({ updatedAt: -1 })
       .populate("store");
   }
@@ -170,7 +174,7 @@ exports.all = TryCatch(async (req, res) => {
   });
 });
 exports.unapproved = TryCatch(async (req, res) => {
-  const unapprovedProducts = await Product.find({ approved: false }).sort({
+  const unapprovedProducts = await Product.find({ approved: false, ...getAdminFilter(req.user) }).sort({
     updatedAt: -1,
   });
   res.status(200).json({
@@ -255,6 +259,7 @@ exports.bulkUploadHandler = async (req, res) => {
 
       // Set default approval status based on user role
       processedProduct.approved = req.user.isSuper ? true : false;
+      processedProduct.admin_id = getAdminIdForCreation(req.user);
 
       // Convert string numbers to actual numbers
       if (processedProduct.current_stock) {
@@ -352,7 +357,7 @@ exports.bulkUploadHandler = async (req, res) => {
     const newDirectProduct = await generateProductIdsForBulk(processedProducts);
 
     // Insert products
-    await Product.insertMany(newDirectProduct);
+    await Product.insertMany(newDirectProduct.map(p => ({ ...p, admin_id: getAdminIdForCreation(req.user) })));
 
     res.status(200).json({
       status: 200,
@@ -436,6 +441,7 @@ exports.bulkUploadHandlerIndirect = async (req, res) => {
 
       // Set default approval status based on user role
       processedProduct.approved = req.user.isSuper ? true : false;
+      processedProduct.admin_id = getAdminIdForCreation(req.user);
 
       // Convert string numbers to actual numbers
       if (processedProduct.current_stock) {
@@ -533,7 +539,7 @@ exports.bulkUploadHandlerIndirect = async (req, res) => {
     const indirectGoods = await generateProductIdsForBulk(processedProducts);
 
     // Insert products
-    await Product.insertMany(indirectGoods);
+    await Product.insertMany(indirectGoods.map(p => ({ ...p, admin_id: getAdminIdForCreation(req.user) })));
 
     res.status(200).json({
       status: 200,
@@ -606,6 +612,7 @@ exports.exportToExcel = TryCatch(async (req, res) => {
       approved: true,
       inventory_category: "direct", // Only direct products
       category: category, // Filter by specific category if provided
+      ...getAdminFilter(req.user),
     })
       .sort({ updatedAt: -1 })
       .populate("store", "name");
@@ -613,6 +620,7 @@ exports.exportToExcel = TryCatch(async (req, res) => {
     products = await Product.find({
       approved: true,
       inventory_category: "direct", // Only direct products
+      ...getAdminFilter(req.user),
     })
       .sort({ updatedAt: -1 })
       .populate("store", "name");
@@ -786,6 +794,7 @@ exports.rawMaterials = TryCatch(async (req, res) => {
   const rawMaterials = await Product.find({
     category: "raw materials",
     approved: true,
+    ...getAdminFilter(req.user),
   }).select("name _id product_id uom");
   res.status(200).json({
     status: 200,
@@ -802,6 +811,7 @@ exports.exportToExcelIndirect = TryCatch(async (req, res) => {
       approved: true,
       inventory_category: "indirect",
       category: category,
+      ...getAdminFilter(req.user),
     })
       .sort({ updatedAt: -1 })
       .populate("store", "name");
@@ -809,6 +819,7 @@ exports.exportToExcelIndirect = TryCatch(async (req, res) => {
     products = await Product.find({
       approved: true,
       inventory_category: "indirect",
+      ...getAdminFilter(req.user),
     })
       .sort({ updatedAt: -1 })
       .populate("store", "name");

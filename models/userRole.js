@@ -10,9 +10,13 @@ const userRoleSchema = new Schema(
     role: {
       type: String,
       required: [true, "Role is a required field"], 
-      unique: true,
       minlength: [2, "Role must be at least 2 characters long"],
       maxlength: [20, "Role cannot exceed 20 characters"],
+    },
+    admin_id: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
     },
     permissions: {
       type: [String],
@@ -73,4 +77,5 @@ userRoleSchema.set("toJSON", {
 });
 
 const UserRole = model("User-Role", userRoleSchema);
+userRoleSchema.index({ role: 1, admin_id: 1 }, { unique: true });
 module.exports = UserRole;
