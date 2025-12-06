@@ -3,6 +3,7 @@ const Product = require("../models/product");
 const BOMRawMaterial = require("../models/bom-raw-material");
 const { TryCatch } = require("../utils/error");
 const ProductionProcess = require("../models/productionProcess");
+const { getAdminFilter } = require("../utils/adminFilter");
 
 exports.getInventoryStats = TryCatch(async (req, res) => {
   const now = moment();
@@ -24,22 +25,26 @@ exports.getInventoryStats = TryCatch(async (req, res) => {
   
   const totalDirect = await Product.countDocuments({
     inventory_category: "direct",
+    ...getAdminFilter(req.user),
   });
  
   const lastMonthDirect = await Product.countDocuments({
     inventory_category: "direct",
     createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth },
+    ...getAdminFilter(req.user),
   });
   const thisMonthDirect = await Product.countDocuments({
     inventory_category: "direct",
     createdAt: { $gte: startOfThisMonth, $lte: endOfThisMonth },
+    ...getAdminFilter(req.user),
   });
 
   // ==== Indirect Inventory ====
-  const totalIndirect = await Product.countDocuments({ inventory_category: "indirect" });
+  const totalIndirect = await Product.countDocuments({ inventory_category: "indirect", ...getAdminFilter(req.user) });
   const lastMonthIndirect = await Product.countDocuments({
     inventory_category: "indirect",
     createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth },
+    ...getAdminFilter(req.user),
   });
   const thisMonthIndirect = await Product.countDocuments({
     inventory_category: "indirect",

@@ -111,10 +111,10 @@ exports.create = TryCatch(async (req, res) => {
           dupField === "email"
             ? "Email already in use"
             : dupField === "phone"
-            ? "Phone already in use"
-            : dupField === "employeeId"
-            ? "Employee ID already exists, please try again"
-            : "Duplicate value for a unique field";
+              ? "Phone already in use"
+              : dupField === "employeeId"
+                ? "Employee ID already exists, please try again"
+                : "Duplicate value for a unique field";
 
         throw new ErrorHandler(message, 400);
       }
@@ -141,22 +141,23 @@ exports.create = TryCatch(async (req, res) => {
       );
     }
 
-    // ================= SUBSCRIPTION CREATION =================
-    const today = new Date();
-    const next7Days = new Date(today);
-    next7Days.setDate(today.getDate() + 7);
-    next7Days.setHours(0, 0, 0, 0);
+    if (user?.isSuper) {  // ================= SUBSCRIPTION CREATION =================
+      const today = new Date();
+      const next7Days = new Date(today);
+      next7Days.setDate(today.getDate() + 7);
+      next7Days.setHours(0, 0, 0, 0);
 
-    await SubscriptionPayment.create(
-      [
-        {
-          userId: user._id,
-          endDate: next7Days,
-          razorpayPaymentId: user._id.toString(),
-        },
-      ],
-      { session }
-    );
+      await SubscriptionPayment.create(
+        [
+          {
+            userId: user._id,
+            endDate: next7Days,
+            razorpayPaymentId: user._id.toString(),
+          },
+        ],
+        { session }
+      );
+    }
 
     // ================= COMMIT TRANSACTION =================
     await session.commitTransaction();
@@ -192,6 +193,8 @@ exports.verifyUser = TryCatch(async (req, res) => {
     message: "Your account has been verified successfully",
   });
 });
+
+
 exports.update = TryCatch(async (req, res) => {
   const { _id, role } = req.body;
 
@@ -216,6 +219,8 @@ exports.update = TryCatch(async (req, res) => {
     user,
   });
 });
+
+
 exports.remove = TryCatch(async (req, res) => {
   const userId = req.user._id;
 
@@ -323,11 +328,13 @@ exports.employeeDetails = TryCatch(async (req, res) => {
     user,
   });
 });
+
+
 exports.loginWithPassword = TryCatch(async (req, res) => {
   const { email, password } = req.body;
 
   const user = await User.findOne({ email })
-    .select("first_name last_name email phone role isSuper password")
+    .select("first_name last_name email phone role isSuper password administration")
     .populate("role");
   if (!user) {
     throw new Error("User doesn't exist", 400);
@@ -361,6 +368,8 @@ exports.loginWithPassword = TryCatch(async (req, res) => {
     token,
   });
 });
+
+
 exports.loginWithToken = TryCatch(async (req, res) => {
   const token = req.headers?.authorization?.split(" ")[1];
 
@@ -379,6 +388,7 @@ exports.loginWithToken = TryCatch(async (req, res) => {
     const user = await User.findOne({ email: verified?.email }).populate(
       "role"
     );
+
     if (!user) {
       throw new ErrorHandler("User doesn't exist", 401);
     }
@@ -402,6 +412,8 @@ exports.loginWithToken = TryCatch(async (req, res) => {
   }
   throw new ErrorHandler("Session expired, login again", 401);
 });
+
+
 exports.resetPasswordRequest = TryCatch(async (req, res) => {
   const { email } = req.body;
   if (!email) {
@@ -474,6 +486,7 @@ exports.resetPassword = TryCatch(async (req, res) => {
     message: "Your password has been updated successfully",
   });
 });
+
 exports.resendOtp = TryCatch(async (req, res) => {
   const { email } = req.body;
   if (!email) {
@@ -528,20 +541,21 @@ exports.resendOtp = TryCatch(async (req, res) => {
     message: "OTP has been successfully sent to your email id",
   });
 });
+
 exports.all = TryCatch(async (req, res) => {
   const mongoose = require('mongoose');
-  
+
   // Super admin sees all employees (non-super users)
   // Regular admin sees only their own employees (where admin_id matches their _id)
   let queryFilter;
-  
+
   console.log('=== Fetching Employees ===');
   console.log('Current User ID:', req.user._id);
   console.log('Current User ID Type:', typeof req.user._id);
   console.log('Is Super Admin:', req.user?.isSuper);
-  
-  const adminObjectId = req.user._id instanceof mongoose.Types.ObjectId 
-    ? req.user._id 
+
+  const adminObjectId = req.user._id instanceof mongoose.Types.ObjectId
+    ? req.user._id
     : new mongoose.Types.ObjectId(req.user._id);
 
   queryFilter = {
@@ -555,16 +569,16 @@ exports.all = TryCatch(async (req, res) => {
   console.log('Query Filter:', JSON.stringify(queryFilter));
   console.log('Admin ObjectId:', adminObjectId);
   console.log('Admin ObjectId toString:', adminObjectId.toString());
-  
+
   const users = await User.find(queryFilter).populate("role");
-  
+
   console.log('Found Employees Count:', users.length);
   if (users.length > 0) {
     console.log('First Employee admin_id:', users[0].admin_id);
     console.log('First Employee admin_id toString:', users[0].admin_id?.toString());
     console.log('First Employee admin_id Type:', typeof users[0].admin_id);
   }
-  
+
   res.status(200).json({
     status: 200,
     success: true,

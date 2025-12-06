@@ -2,6 +2,11 @@ const { Schema, model } = require("mongoose");
 
 const productSchema = new Schema(
   {
+    admin_id: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+    },
     inventory_category: {
       type: String,
       enum: ["direct", "indirect"],

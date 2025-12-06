@@ -2,6 +2,7 @@ const Store = require("../models/store");
 const csv = require('csvtojson');
 const fs = require('fs');
 const { ErrorHandler, TryCatch } = require("../utils/error");
+const { getAdminFilter, getAdminIdForCreation } = require("../utils/adminFilter");
 const { checkStoreCsvValidity } = require("../utils/checkStoreCsvValidity");
 
 exports.create = TryCatch(async (req, res) => {
@@ -12,7 +13,11 @@ exports.create = TryCatch(async (req, res) => {
   }
   console.log("store2");
 
-  const store = await Store.create({ ...storeDetails, approved: req.user.isSuper });
+  const store = await Store.create({
+    ...storeDetails,
+    admin_id: getAdminIdForCreation(req.user),
+    approved: req.user.isSuper,
+  });
 console.log("store3");
   res.status(200).json({
     status: 200,
@@ -30,7 +35,7 @@ exports.update = TryCatch(async (req, res) => {
   if (!storeDetails) {
     throw new ErrorHandler("Please provide all the fields", 400);
   }
-  let store = await Store.findById(id);
+  let store = await Store.findOne({ _id: id, ...getAdminFilter(req.user) });
   if (!store) {
     throw new ErrorHandler("Store doesn't exist", 400);
   }
@@ -40,8 +45,8 @@ exports.update = TryCatch(async (req, res) => {
     (Array.isArray(req.user?.role?.permissions) &&
       req.user.role.permissions.includes("approval"));
 
-  store = await Store.findByIdAndUpdate(
-    id,
+  store = await Store.findOneAndUpdate(
+    { _id: id, ...getAdminFilter(req.user) },
     {
       ...storeDetails,
       approved: canApprove
@@ -63,7 +68,7 @@ exports.remove = TryCatch(async (req, res) => {
   if (!id) {
     throw new ErrorHandler("Store Id not provided", 400);
   }
-  let store = await Store.findById(id);
+  let store = await Store.findOne({ _id: id, ...getAdminFilter(req.user) });
   if (!store) {
     throw new ErrorHandler("Store doesn't exist", 400);
   }
@@ -82,7 +87,7 @@ exports.details = TryCatch(async (req, res) => {
   if (!id) {
     throw new ErrorHandler("Store Id not provided", 400);
   }
-  let store = await Store.findById(id);
+  let store = await Store.findOne({ _id: id, ...getAdminFilter(req.user) });
   if (!store) {
     throw new ErrorHandler("Store doesn't exist", 400);
   }
@@ -94,7 +99,7 @@ exports.details = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const stores = await Store.find({ approved: true }).sort({ updatedAt: -1 });
+  const stores = await Store.find({ approved: true, ...getAdminFilter(req.user) }).sort({ updatedAt: -1 });
   res.status(200).json({
     status: 200,
     success: true,
@@ -102,7 +107,7 @@ exports.all = TryCatch(async (req, res) => {
   });
 });
 exports.unapproved = TryCatch(async (req, res) => {
-  const stores = await Store.find({ approved: false }).sort({ updatedAt: -1 });
+  const stores = await Store.find({ approved: false, ...getAdminFilter(req.user) }).sort({ updatedAt: -1 });
   res.status(200).json({
     status: 200,
     success: true,
