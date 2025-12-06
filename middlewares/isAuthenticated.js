@@ -12,7 +12,7 @@ exports.isAuthenticated = TryCatch(async (req, res, next) => {
   if (!verified) {
     throw new ErrorHandler("Session expired, login again", 401);
   }
-  const user = await User.findOne({ email: verified?.email }).populate('role');
+  const user = await User.findOne({ email: verified?.email }).populate("role");
   if (!user) {
     throw new ErrorHandler("User doesn't exist", 400);
   }
@@ -23,11 +23,12 @@ exports.isAuthenticated = TryCatch(async (req, res, next) => {
     verified.exp > currentTimeInSeconds
   ) {
     req.user = {
-        email: user.email,
-        _id: user._id,
-        role: user.role,
-        isSuper: user.isSuper,
-    }
+      email: user.email,
+      _id: user._id,
+      role: user.role,
+      isSuper: user.isSuper,
+      admin_id: user.admin_id,
+    };
     return next();
   }
   throw new ErrorHandler("Session expired, login again", 401);

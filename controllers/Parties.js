@@ -52,7 +52,6 @@ exports.CreateParties = TryCatch(async (req, res) => {
   const cust_id = await generateCustomerId(type, company_name, consignee_name);
 
   const isAdmin = !!req.user?.isSuper;
-
   const adminId = getAdminIdForCreation(req.user);
 
   const result = await PartiesModels.create({
@@ -61,7 +60,7 @@ exports.CreateParties = TryCatch(async (req, res) => {
     approved: isAdmin,
     admin_id: adminId,
   });
-  console.log(result);
+
   return res.status(201).json({
     message: "Party added successfully",
     result,
@@ -81,6 +80,7 @@ exports.GetParties = TryCatch(async (req, res) => {
     .sort({ _id: -1 })
     .skip(skip)
     .limit(limits);
+
   return res.status(200).json({
     message: "Data",
     data,
