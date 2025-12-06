@@ -13,6 +13,39 @@ exports.create = TryCatch(async (req, res) => {
   let employeeId = null;
   let roleId = null;
 
+  // Populate req.user if Authorization header present (route is open for bootstrap)
+  try {
+    if (!req.user && req.headers?.authorization) {
+      const token = req.headers.authorization.split(" ")[1];
+      if (token) {
+        const verified = jwt.verify(token, process.env.JWT_SECRET);
+        if (verified?.email) {
+          const authUser = await User.findOne({ email: verified.email }).populate('role');
+          if (authUser) {
+            req.user = {
+              email: authUser.email,
+              _id: authUser._id,
+              role: authUser.role,
+              isSuper: authUser.isSuper,
+            };
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // ignore token errors here; creation guard below will handle
+  }
+
+  if (!req.user) {
+    if (!userDetails?.isSuper) {
+      throw new ErrorHandler("Login required to create employees", 401);
+    }
+  } else {
+    if (userDetails?.isSuper && !req.user.isSuper) {
+      throw new ErrorHandler("Only super admin can create another super admin", 403);
+    }
+  }
+
   // Handle role assignment
   // if (userDetails.role) {
   //   const mongoose = require('mongoose');
@@ -42,19 +75,36 @@ exports.create = TryCatch(async (req, res) => {
   //   // Super admins can be created without a role
   // }
 
-  // Generate employeeId only for non-super users (employees)
-  if (!userDetails?.isSuper) {
-    const nonSuperUserCount = await User.countDocuments({ isSuper: false });
-    // If the non-super user count exceeds 100, throw an error
-    if (nonSuperUserCount >= 100) {
-      throw new ErrorHandler("Maximum limit of 100 employees reached", 403);
-    }
-    const prefix =
-      userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
-    const idNumber = String(nonSuperUserCount + 1).padStart(4, "0");
-    employeeId = `${prefix}${idNumber}`;
+  // === EMPLOYEE ID GENERATION (Globally unique, admin-wise numbering) ===
+if (!userDetails?.isSuper) {
+  const mongoose = require('mongoose');
+  let adminObjectId = req.user && req.user._id 
+    ? (req.user._id instanceof mongoose.Types.ObjectId 
+        ? req.user._id 
+        : new mongoose.Types.ObjectId(req.user._id)) 
+    : null;
+  // Only count for the current admin to keep numbering admin-wise
+  const adminEmployeeCount = await User.countDocuments({ 
+    isSuper: false, 
+    admin_id: adminObjectId 
+  });
+  const prefix = userDetails.first_name?.substring(0, 3).toUpperCase() || "EMP";
+  const adminCode = (adminObjectId ? adminObjectId.toString().slice(-4) : 'SYS').toUpperCase();
+  let idNumber = String(adminEmployeeCount + 1).padStart(4, "0");
+  employeeId = `${prefix}${idNumber}-${adminCode}`;
+  // Ensure globally unique employeeId (rare collisions/concurrency)
+  let existingEmployee = await User.findOne({ employeeId });
+  let counter = 1;
+  while (existingEmployee && counter < 1000) {
+    idNumber = String(adminEmployeeCount + 1 + counter).padStart(4, "0");
+    employeeId = `${prefix}${idNumber}-${adminCode}`;
+    existingEmployee = await User.findOne({ employeeId });
+    counter++;
   }
-
+  if (counter >= 1000) {
+    throw new ErrorHandler("Unable to generate unique employee ID. Please try again.", 500);
+  }
+}
   // Prepare user data for creation
   const userData = { ...userDetails };
   // if (roleId) {
@@ -64,38 +114,66 @@ exports.create = TryCatch(async (req, res) => {
     userData.employeeId = employeeId;
   }
 
-  // Set admin_id for employees (only if not super admin and if req.user exists)
-  // If creating employee from authenticated route, set admin_id to current user
+  // Set admin_id for employees - the admin who creates the employee becomes their admin
+  // Only set admin_id for non-super users (employees) and only if req.user exists (authenticated request)
+  // If creating via registration (no token), admin_id will be null (can be set later)
   if (!userDetails?.isSuper && req.user && req.user._id) {
-    userData.admin_id = req.user._id;
-  } else if (!userDetails?.isSuper && req.user) {
-    // Use adminFilter utility for consistency
-    userData.admin_id = getAdminIdForCreation(req.user);
+    // Set admin_id to the current user (admin) who is creating this employee
+    // Ensure it's stored as ObjectId
+    const mongoose = require('mongoose');
+    userData.admin_id = req.user._id instanceof mongoose.Types.ObjectId 
+      ? req.user._id 
+      : new mongoose.Types.ObjectId(req.user._id);
+    // Auto-verify employees created by an authenticated admin
+    userData.isVerified = true;
+    
+    console.log('=== Creating Employee ===');
+    console.log('Admin ID (req.user._id):', req.user._id);
+    console.log('Admin ID Type:', typeof req.user._id);
+    console.log('Setting admin_id for employee:', userData.admin_id);
   }
 
-  const user = await User.create(userData);
+  let user;
+  try {
+    user = await User.create(userData);
+  } catch (err) {
+    if (err && err.code === 11000) {
+      const dupField = Object.keys(err.keyPattern || {})[0] || 'field';
+      const message = dupField === 'email'
+        ? 'Email already in use'
+        : dupField === 'phone'
+        ? 'Phone already in use'
+        : dupField === 'employeeId'
+        ? 'Employee ID already exists, please try again'
+        : 'Duplicate value for a unique field';
+      throw new ErrorHandler(message, 400);
+    }
+    throw err;
+  }
   user.password = undefined;
 
-  let otp = generateOTP(4);
-  await OTP.create({ email: user?.email, otp });
+  if (!user.isVerified) {
+    let otp = generateOTP(4);
+    await OTP.create({ email: user?.email, otp });
+    sendEmail(
+      "Account Verification",
+      `
+        <strong>Dear ${user.first_name}</strong>,
+    
+        <p>Thank you for registering with us! To complete your registration and verify your account, please use the following One-Time Password (OTP): <strong>${otp}</strong></p>
 
-  sendEmail(
-    "Account Verification",
-    `
-      <strong>Dear ${user.first_name}</strong>,
-  
-      <p>Thank you for registering with us! To complete your registration and verify your account, please use the following One-Time Password (OTP): <strong>${otp}</strong></p>
-
-      <p>This OTP is valid for 5 minutes. Do not share your OTP with anyone.</p>
-      `,
-    user?.email
-  );
+        <p>This OTP is valid for 5 minutes. Do not share your OTP with anyone.</p>
+        `,
+      user?.email
+    );
+  }
 
   res.status(200).json({
     status: 200,
     success: true,
-    message:
-      "User has been created successfully. OTP has been successfully sent to your email id",
+    message: user.isVerified
+      ? "User has been created successfully."
+      : "User has been created successfully. OTP has been successfully sent to your email id",
     user,
   });
 
@@ -463,18 +541,42 @@ exports.resendOtp = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const { getAdminFilter } = require("../utils/adminFilter");
+  const mongoose = require('mongoose');
+  
+  // Super admin sees all employees (non-super users)
+  // Regular admin sees only their own employees (where admin_id matches their _id)
+  let queryFilter;
+  
+  console.log('=== Fetching Employees ===');
+  console.log('Current User ID:', req.user._id);
+  console.log('Current User ID Type:', typeof req.user._id);
+  console.log('Is Super Admin:', req.user?.isSuper);
+  
+  const adminObjectId = req.user._id instanceof mongoose.Types.ObjectId 
+    ? req.user._id 
+    : new mongoose.Types.ObjectId(req.user._id);
 
-  // Get filter based on admin - super admin sees all, regular admin sees only their employees
-  const filter = getAdminFilter(req.user);
+  queryFilter = {
+    $and: [
+      { admin_id: adminObjectId },
+      { admin_id: { $exists: true, $ne: null } },
+      { isSuper: false }
+    ]
+  };
 
-  // Only show employees (non-super users) unless super admin wants to see all
-  // For regular admins, show only their employees
-  const queryFilter = req.user?.isSuper
-    ? { isSuper: false } // Super admin sees all employees
-    : { ...filter, isSuper: false }; // Regular admin sees only their employees
-
+  console.log('Query Filter:', JSON.stringify(queryFilter));
+  console.log('Admin ObjectId:', adminObjectId);
+  console.log('Admin ObjectId toString:', adminObjectId.toString());
+  
   const users = await User.find(queryFilter).populate("role");
+  
+  console.log('Found Employees Count:', users.length);
+  if (users.length > 0) {
+    console.log('First Employee admin_id:', users[0].admin_id);
+    console.log('First Employee admin_id toString:', users[0].admin_id?.toString());
+    console.log('First Employee admin_id Type:', typeof users[0].admin_id);
+  }
+  
   res.status(200).json({
     status: 200,
     success: true,
@@ -517,4 +619,3 @@ exports.updateProfile = TryCatch(async (req, res) => {
     user: updatedUser,
   });
 });
-
