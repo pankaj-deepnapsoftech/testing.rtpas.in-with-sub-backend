@@ -6,7 +6,10 @@ const path = require("path");
 const { parseExcelFile } = require("../utils/parseExcelFile");
 const { checkPartiesCsvValidity } = require("../utils/checkPartiesCsvValidity");
 const { generateBulkCustomerIds } = require("../utils/generateProductId");
-const { getAdminFilter } = require("../utils/adminFilter");
+const {
+  getAdminFilter,
+  getAdminIdForCreation,
+} = require("../utils/adminFilter");
 
 const generateCustomerId = async (partyType, companyName, consigneeName) => {
   let prefix = "";
@@ -50,7 +53,7 @@ exports.CreateParties = TryCatch(async (req, res) => {
 
   const isAdmin = !!req.user?.isSuper;
 
-  const adminId = req.user.admin_id || req.user._id;
+  const adminId = getAdminIdForCreation(req.user);
 
   const result = await PartiesModels.create({
     ...data,
@@ -96,7 +99,7 @@ exports.DeleteParties = TryCatch(async (req, res) => {
     ? req.user.admin_id.toString()
     : req.user._id.toString();
 
-  if (!req.user.isSuper && find.admin_id.toString() !== userAdminId) {
+  if (find.admin_id.toString() !== userAdminId) {
     throw new ErrorHandler("You are not authorized to delete this party", 403);
   }
 
@@ -119,7 +122,7 @@ exports.UpdateParties = TryCatch(async (req, res) => {
     ? req.user.admin_id.toString()
     : req.user._id.toString();
 
-  if (!req.user.isSuper && find.admin_id.toString() !== userAdminId) {
+  if (find.admin_id.toString() !== userAdminId) {
     throw new ErrorHandler("You are not authorized to update this party", 403);
   }
 
@@ -176,7 +179,7 @@ exports.bulkUploadHandler = async (req, res) => {
 
     await checkPartiesCsvValidity(parsedData);
 
-    const adminId = req.user.admin_id || req.user._id;
+    const adminId = getAdminIdForCreation(req.user);
 
     const processedParties = [];
     for (const party of parsedData) {
