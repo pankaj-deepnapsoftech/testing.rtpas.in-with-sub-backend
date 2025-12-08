@@ -39,12 +39,32 @@ exports.getStats = TryCatch(async (req, res) => {
     createdAt: { $gte: startOfThisMonth, $lte: endOfThisMonth },
   });
 
+  // ==== BOM stats (admin-scoped) ====
+  const bomTotal = await BOM.countDocuments({
+    admin_id: adminId,
+  });
+
+  const bomLastMonth = await BOM.countDocuments({
+    admin_id: adminId,
+    createdAt: { $gte: startOfLastMonth, $lte: endOfLastMonth },
+  });
+
+  const bomThisMonth = await BOM.countDocuments({
+    admin_id: adminId,
+    createdAt: { $gte: startOfThisMonth, $lte: endOfThisMonth },
+  });
+
   return res.status(200).json({
     success: true,
     verified_employees: {
       total: totalVerifiedEmployees,
       lastMonth: lastMonthVerifiedEmployees,
       thisMonth: thisMonthVerifiedEmployees,
+    },
+    bom: {
+      total: bomTotal,
+      lastMonth: bomLastMonth,
+      thisMonth: bomThisMonth,
     },
   });
 });
