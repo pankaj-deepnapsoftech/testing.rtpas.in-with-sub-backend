@@ -9,6 +9,7 @@ const { generateBulkCustomerIds } = require("../utils/generateProductId");
 const {
   getAdminFilter,
   getAdminIdForCreation,
+  cleanUpdateData,
 } = require("../utils/adminFilter");
 
 const generateCustomerId = async (partyType, companyName, consigneeName) => {
@@ -136,9 +137,14 @@ exports.UpdateParties = TryCatch(async (req, res) => {
     nextConsigneeName
   );
 
+  // Clean update data to prevent admin_id from being changed
+  const updateData = cleanUpdateData({ ...find.toObject(), ...data, cust_id });
+  // Ensure admin_id is preserved
+  updateData.admin_id = find.admin_id;
+
   const updated = await PartiesModels.findByIdAndUpdate(
     id,
-    { ...find.toObject(), ...data, cust_id },
+    updateData,
     { new: true }
   );
 

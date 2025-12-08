@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 
 const DispatchSchema = new mongoose.Schema(
   {
+    admin_id: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     creator: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     Sale_id: [
       { type: mongoose.Schema.Types.ObjectId, ref: "Purchase", default: [] },

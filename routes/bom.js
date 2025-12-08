@@ -8,7 +8,7 @@ const { BOMValidation } = require("../validation/bom.validation");
 const router = express.Router();
 
 router.post("/", isAuthenticated, Validater(BOMValidation), create);
-router.get("/all", all);
+router.get("/all", isAuthenticated, all);
 router.get("/unapproved", isAuthenticated,  unapproved);
 // router.get('/approved', isAuthenticated, isSuper, approved);
 router.get("/autobom", isAuthenticated, isSuper, autoBom);

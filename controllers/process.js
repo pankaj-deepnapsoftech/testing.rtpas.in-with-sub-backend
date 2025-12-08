@@ -6,6 +6,7 @@ const Product = require("../models/product");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 const BOMFinishedMaterial = require("../models/bom-finished-material");
 const { DispatchModel } = require("../models/Dispatcher");
+const { getAdminFilter, getAdminIdForCreation, canAccessRecord, cleanUpdateData } = require("../utils/adminFilter");
 
 exports.create = TryCatch(async (req, res) => {
   const processData = req.body;
@@ -70,6 +71,11 @@ exports.create = TryCatch(async (req, res) => {
       estimated_quantity: material.quantity,
     }));
 
+  // Check if user can access this BOM
+  if (!canAccessRecord(req.user, bom, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to create production process for this BOM", 403);
+  }
+
   const productionProcess = await ProductionProcess.create({
     ...processData,
     bom: bom._id,
@@ -78,6 +84,7 @@ exports.create = TryCatch(async (req, res) => {
     raw_materials,
     scrap_materials,
     creator: req.user._id,
+    admin_id: getAdminIdForCreation(req.user),
     approved: req.user.isSuper || false,
   });
 
@@ -104,6 +111,16 @@ exports.create = TryCatch(async (req, res) => {
 });
 exports.update = async (req, res) => {
   const { _id, status, bom } = req.body;
+  
+  // Check if user can access this production process
+  const productionProcess = await ProductionProcess.findById(_id);
+  if (!productionProcess) {
+    throw new ErrorHandler("Production Process doesn't exist", 400);
+  }
+  if (!canAccessRecord(req.user, productionProcess, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this production process", 403);
+  }
+
   const bomDoc = await BOM.findById(bom._id)
     .populate({
       path: "raw_materials",
@@ -163,7 +180,8 @@ exports.update = async (req, res) => {
     })
   );
 
-  const productionProcess = await ProductionProcess.findById(_id).populate({
+  // Get populated production process for further processing
+  productionProcess = await ProductionProcess.findById(_id).populate({
     path: "scrap_materials",
     populate: { path: "item", model: "Product" }
   });
@@ -530,8 +548,14 @@ exports.getInventoryProcesses = TryCatch(async (req, res) => {
     "Out Finished Goods",
   ];
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+
   const processes = await ProductionProcess.find({
-    status: { $in: statuses },
+    $and: [
+      ...(adminFilter.$and || [adminFilter]),
+      { status: { $in: statuses } }
+    ]
   }).populate("finished_good.item"); // agar relation hai
 
   res.status(200).json({
@@ -696,7 +720,10 @@ exports.details = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const productionProcesses = await ProductionProcess.find().populate(
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+
+  const productionProcesses = await ProductionProcess.find(adminFilter).populate(
     "rm_store fg_store scrap_store creator item bom"
   ).sort({_id:-1});
   // console.log("prodcution proce", productionProcesses);

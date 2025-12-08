@@ -19,6 +19,7 @@ const InventoryShortage = require("../models/inventoryShortage");
 const Item = require("../models/product");
 
 const { TryCatch, ErrorHandler } = require("../utils/error");
+const { getAdminFilter, getAdminIdForCreation, canAccessRecord, cleanUpdateData } = require("../utils/adminFilter");
 
 const { generateBomId } = require("../utils/generateBomId");
 
@@ -200,6 +201,7 @@ exports.create = TryCatch(async (req, res) => {
     approved: req.user.isSuper,
 
     creator: req.user._id,
+    admin_id: getAdminIdForCreation(req.user),
 
     other_charges,
 
@@ -324,6 +326,11 @@ exports.update = TryCatch(async (req, res) => {
 
   if (!bom) {
     throw new ErrorHandler("BOM not found", 404);
+  }
+
+  // Check if user can access this BOM
+  if (!canAccessRecord(req.user, bom, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this BOM", 403);
   }
 
   // ============================================
@@ -766,7 +773,19 @@ exports.all = TryCatch(async (req, res) => {
 
   const skip = (page - 1) * limit;
 
-  const boms = await BOM.find({ approved: true })
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  // Optional approved filter; default shows all BOMs for this admin
+  const approvedFilter =
+    typeof req.query.approved !== "undefined"
+      ? { approved: req.query.approved === "true" }
+      : null;
+
+  const boms = await BOM.find({
+    $and: approvedFilter ? [...adminFilterArray, approvedFilter] : [...adminFilterArray],
+  })
 
     .populate({
       path: "finished_good",
@@ -848,7 +867,16 @@ exports.all = TryCatch(async (req, res) => {
 });
 
 exports.unapproved = TryCatch(async (req, res) => {
-  const boms = await BOM.find({ approved: false })
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  const boms = await BOM.find({ 
+    $and: [
+      ...adminFilterArray,
+      { approved: false }
+    ]
+  })
 
     .populate("approved_by")
 
@@ -1132,7 +1160,10 @@ exports.findFinishedGoodBom = TryCatch(async (req, res) => {
     throw new ErrorHandler("Id not provided", 400);
   }
 
-  const allBoms = await BOM.find().populate("finished_good");
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+
+  const allBoms = await BOM.find(adminFilter).populate("finished_good");
 
   const boms = allBoms.filter((bom) => {
     return bom.finished_good.item.toString() === _id;
@@ -1824,23 +1855,26 @@ exports.getInventoryApprovalStatus = TryCatch(async (req, res) => {
   const { salesOrderId } = req.params;
 
   try {
+    // Get admin filter to ensure each admin only sees their own data
+    const adminFilter = getAdminFilter(req.user);
+    const adminFilterArray = adminFilter.$and || [adminFilter];
+
     // Find BOM linked to this sales order - try different possible field names
+    const bomFilter = {
+      $and: [
+        ...adminFilterArray,
+        {
+          $or: [
+            { sale_id: salesOrderId },
+            { sales_order: salesOrderId },
+            { purchase_id: salesOrderId },
+            { order_id: salesOrderId }
+          ]
+        }
+      ]
+    };
 
-    let bom = await BOM.findOne({ sale_id: salesOrderId });
-
-    if (!bom) {
-      // Try alternative field names
-
-      bom = await BOM.findOne({ sales_order: salesOrderId });
-    }
-
-    if (!bom) {
-      bom = await BOM.findOne({ purchase_id: salesOrderId });
-    }
-
-    if (!bom) {
-      bom = await BOM.findOne({ order_id: salesOrderId });
-    }
+    let bom = await BOM.findOne(bomFilter);
 
     if (!bom) {
       return res.status(200).json({
@@ -2031,14 +2065,26 @@ exports.getSalesOrderStatus = TryCatch(async (req, res) => {
       });
     }
 
-    // First, check if the provided ID is a BOM ID itself
+    // Get admin filter to ensure each admin only sees their own data
+    const adminFilter = getAdminFilter(req.user);
+    const adminFilterArray = adminFilter.$and || [adminFilter];
 
-    let bom = await BOM.findById(salesOrderId);
+    // First, check if the provided ID is a BOM ID itself
+    let bom = await BOM.findOne({
+      $and: [
+        ...adminFilterArray,
+        { _id: salesOrderId }
+      ]
+    });
 
     // If not found as BOM ID, try to find BOM linked to this sales order
-
     if (!bom) {
-      bom = await BOM.findOne({ sale_id: salesOrderId });
+      bom = await BOM.findOne({
+        $and: [
+          ...adminFilterArray,
+          { sale_id: salesOrderId }
+        ]
+      });
     }
 
     // If no BOM found by sale ID, don't use any random BOM
@@ -2396,7 +2442,10 @@ exports.getSalesOrderStatus = TryCatch(async (req, res) => {
 
 exports.getAllBOMs = TryCatch(async (req, res) => {
   try {
-    const allBOMs = await BOM.find({})
+    // Get admin filter to ensure each admin only sees their own data
+    const adminFilter = getAdminFilter(req.user);
+
+    const allBOMs = await BOM.find(adminFilter)
 
       .populate("finished_good")
 
@@ -2404,9 +2453,10 @@ exports.getAllBOMs = TryCatch(async (req, res) => {
 
       .sort({ createdAt: -1 });
 
-    // Get all sales orders to link with BOMs
-
-    const allSalesOrders = await Purchase.find({})
+    // Get all sales orders to link with BOMs (filtered by admin)
+    const allSalesOrders = await Purchase.find({
+      $and: adminFilterPurchaseArray
+    })
 
       .populate("party")
 
@@ -2482,9 +2532,14 @@ exports.getAllBOMs = TryCatch(async (req, res) => {
 
 const getAllSalesOrdersStatus = async (req, res) => {
   try {
-    // Get all sales orders (purchases)
+    // Get admin filter for purchases
+    const adminFilterPurchase = getAdminFilter(req.user);
+    const adminFilterPurchaseArray = adminFilterPurchase.$and || [adminFilterPurchase];
 
-    const allSalesOrders = await Purchase.find({})
+    // Get all sales orders (purchases) - filtered by admin
+    const allSalesOrders = await Purchase.find({
+      $and: adminFilterPurchaseArray
+    })
 
       .populate("party")
 
@@ -2506,9 +2561,12 @@ const getAllSalesOrdersStatus = async (req, res) => {
       });
     }
 
-    // Get all BOMs
+    // Get admin filter to ensure each admin only sees their own data
+    const adminFilter = getAdminFilter(req.user);
+    const adminFilterProcess = getAdminFilter(req.user);
 
-    const allBOMs = await BOM.find({})
+    // Get all BOMs (filtered by admin)
+    const allBOMs = await BOM.find(adminFilter)
 
       .populate("finished_good")
 
@@ -2522,9 +2580,8 @@ const getAllSalesOrdersStatus = async (req, res) => {
 
       .populate("approved_by", "first_name last_name email");
 
-    // Get all production processes
-
-    const allProductionProcesses = await ProductionProcess.find({})
+    // Get all production processes (filtered by admin)
+    const allProductionProcesses = await ProductionProcess.find(adminFilterProcess)
 
       .populate("creator", "first_name last_name email")
 

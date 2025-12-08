@@ -7,6 +7,7 @@ const bomSchema = new Schema(
       unique: true,
       required: [true, "BOM ID is a required field"],
     },
+    admin_id: { type: Schema.Types.ObjectId, ref: "User", index: true },
     creator: {
       type: Schema.Types.ObjectId,
       ref: "User",

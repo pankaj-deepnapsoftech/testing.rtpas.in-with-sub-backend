@@ -6,15 +6,24 @@
  * @returns {Object} - MongoDB filter object
  */
 exports.getAdminFilter = (user) => {
+  let adminId;
+  
   if (user?.isSuper) {
-    return { admin_id: user._id };
+    adminId = user._id;
+  } else if (user?.admin_id) {
+    adminId = user.admin_id;
+  } else {
+    adminId = user?._id;
   }
 
-  if (user?.admin_id) {
-    return { admin_id: user.admin_id };
-  }
-
-  return { admin_id: user?._id };
+  // Return filter that matches admin_id and ensures it's not null
+  // This prevents old records without admin_id or with null admin_id from showing up
+  return { 
+    $and: [
+      { admin_id: adminId },
+      { admin_id: { $ne: null } }
+    ]
+  };
 };
 
 /**
@@ -25,6 +34,10 @@ exports.getAdminFilter = (user) => {
  * @returns {ObjectId} - Admin ID to use for the record
  */
 exports.getAdminIdForCreation = (user) => {
+  if (!user || !user._id) {
+    throw new Error("User ID is required to set admin_id");
+  }
+
   if (user?.admin_id) {
     return user.admin_id;
   }
@@ -48,4 +61,18 @@ exports.canAccessRecord = (user, record, adminField = null) => {
     : user?._id?.toString();
 
   return recordAdminId && recordAdminId.toString() === userAdminId;
+};
+
+/**
+ * Clean update data to prevent admin_id from being set to null/undefined
+ * @param {Object} updateData - The update data object
+ * @returns {Object} - Cleaned update data without admin_id if it's null/undefined
+ */
+exports.cleanUpdateData = (updateData) => {
+  const cleaned = { ...updateData };
+  // Remove admin_id if it's null or undefined to preserve existing value
+  if (cleaned.admin_id === null || cleaned.admin_id === undefined) {
+    delete cleaned.admin_id;
+  }
+  return cleaned;
 };

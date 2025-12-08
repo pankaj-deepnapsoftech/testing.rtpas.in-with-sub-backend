@@ -18,6 +18,7 @@ const BOMRawMaterial = require("../models/bom-raw-material");
 const { Purchase } = require("../models/purchase");
 const { DispatchModel } = require("../models/Dispatcher");
 const { PartiesModels } = require("../models/Parties");
+const { getAdminFilter } = require("../utils/adminFilter");
 
 exports.getWelcomeMessage = async (req, res) => {
   try {
@@ -439,13 +440,22 @@ exports.summary = TryCatch(async (req, res) => {
   const totalProductionAmount =
     bomTotalAgg.length > 0 ? bomTotalAgg[0].totalProductionAmount : 0;
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const totalSalesAgg = await Purchase.aggregate([
     {
       $match: {
-        createdAt: {
-          $gte: oneMonthAgo,
-          $lte: today,
-        },
+        $and: [
+          ...adminFilterArray,
+          {
+            createdAt: {
+              $gte: oneMonthAgo,
+              $lte: today,
+            },
+          }
+        ]
       },
     },
     {
@@ -741,14 +751,23 @@ exports.salesData = TryCatch(async (req, res) => {
       const currentYear = Number(req.query.year) || new Date().getFullYear();
       const prevYear = currentYear - 1;
 
+      // Get admin filter to ensure each admin only sees their own data
+      const adminFilter = getAdminFilter(req.user);
+      const adminFilterArray = adminFilter.$and || [adminFilter];
+
       // Prev Year Sales count (group by month)
       const prevSales = await Purchase.aggregate([
         {
           $match: {
-            createdAt: {
-              $gte: new Date(`${prevYear}-01-01`),
-              $lt: new Date(`${prevYear + 1}-01-01`),
-            },
+            $and: [
+              ...adminFilterArray,
+              {
+                createdAt: {
+                  $gte: new Date(`${prevYear}-01-01`),
+                  $lt: new Date(`${prevYear + 1}-01-01`),
+                },
+              }
+            ]
           },
         },
         {
@@ -764,10 +783,15 @@ exports.salesData = TryCatch(async (req, res) => {
       const currSales = await Purchase.aggregate([
         {
           $match: {
-            createdAt: {
-              $gte: new Date(`${currentYear}-01-01`),
-              $lt: new Date(`${currentYear + 1}-01-01`),
-            },
+            $and: [
+              ...adminFilterArray,
+              {
+                createdAt: {
+                  $gte: new Date(`${currentYear}-01-01`),
+                  $lt: new Date(`${currentYear + 1}-01-01`),
+                },
+              }
+            ]
           },
         },
         {
@@ -853,10 +877,17 @@ exports.salesData = TryCatch(async (req, res) => {
       const currStart = new Date(currMonthYear, currentMonth - 1, 1);
       const currEnd = new Date(currMonthYear, currentMonth, 1);
 
+      // Get admin filter to ensure each admin only sees their own data
+      const adminFilter = getAdminFilter(req.user);
+      const adminFilterArray = adminFilter.$and || [adminFilter];
+
       const prevSales = await Purchase.aggregate([
         {
           $match: {
-            createdAt: { $gte: prevStart, $lt: prevEnd },
+            $and: [
+              ...adminFilterArray,
+              { createdAt: { $gte: prevStart, $lt: prevEnd } }
+            ]
           },
         },
         {
@@ -871,7 +902,10 @@ exports.salesData = TryCatch(async (req, res) => {
       const currSales = await Purchase.aggregate([
         {
           $match: {
-            createdAt: { $gte: currStart, $lt: currEnd },
+            $and: [
+              ...adminFilterArray,
+              { createdAt: { $gte: currStart, $lt: currEnd } }
+            ]
           },
         },
         {
@@ -978,11 +1012,18 @@ exports.salesData = TryCatch(async (req, res) => {
       // Create combined labels (W1, W2, W3, W4 for both months)
       labels = [...prevMonthWeeks, ...currMonthWeeks];
 
+      // Get admin filter to ensure each admin only sees their own data
+      const adminFilter = getAdminFilter(req.user);
+      const adminFilterArray = adminFilter.$and || [adminFilter];
+
       // Previous month sales by week
       const prevSales = await Purchase.aggregate([
         {
           $match: {
-            createdAt: { $gte: startOfPrevMonth, $lte: endOfPrevMonth },
+            $and: [
+              ...adminFilterArray,
+              { createdAt: { $gte: startOfPrevMonth, $lte: endOfPrevMonth } }
+            ]
           },
         },
         {
@@ -1007,7 +1048,10 @@ exports.salesData = TryCatch(async (req, res) => {
       const currSales = await Purchase.aggregate([
         {
           $match: {
-            createdAt: { $gte: startOfCurrentMonth, $lte: endOfCurrentMonth },
+            $and: [
+              ...adminFilterArray,
+              { createdAt: { $gte: startOfCurrentMonth, $lte: endOfCurrentMonth } }
+            ]
           },
         },
         {
@@ -1224,9 +1268,16 @@ exports.dispatchData = TryCatch(async (req, res) => {
   }
 
   try {
-    // Fetch and aggregate data
+    // Get admin filter to ensure each admin only sees their own data
+    const adminFilter = getAdminFilter(req.user);
+    
+    // Fetch and aggregate data - combine admin filter with date filter
+    // adminFilter already contains $and, so we merge it properly
     const totalData = await DispatchModel.find({
-      createdAt: { $gte: startDate, $lte: endDate },
+      $and: [
+        ...(adminFilter.$and || [adminFilter]),
+        { createdAt: { $gte: startDate, $lte: endDate } }
+      ]
     });
 
     console.log("Total Data Count:", totalData.length); // Debug: Check data count
@@ -1804,11 +1855,18 @@ exports.getMonthlySalesAndDelivered = TryCatch(async (req, res, next) => {
   const prevStart = new Date(Date.UTC(prevYear, prevMonth - 1, 1));
   const prevEnd = new Date(Date.UTC(prevYear, prevMonth, 1)); // Full previous month
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilterSales = getAdminFilter(req.user);
+  const adminFilterSalesArray = adminFilterSales.$and || [adminFilterSales];
+
   // Step 4: Aggregate sales for current month (1st to current date)
   const currSales = await Purchase.aggregate([
     {
       $match: {
-        createdAt: { $gte: currStart, $lt: currEnd },
+        $and: [
+          ...adminFilterSalesArray,
+          { createdAt: { $gte: currStart, $lt: currEnd } }
+        ]
       },
     },
     {
@@ -1823,7 +1881,10 @@ exports.getMonthlySalesAndDelivered = TryCatch(async (req, res, next) => {
   const prevSales = await Purchase.aggregate([
     {
       $match: {
-        createdAt: { $gte: prevStart, $lt: prevEnd },
+        $and: [
+          ...adminFilterSalesArray,
+          { createdAt: { $gte: prevStart, $lt: prevEnd } }
+        ]
       },
     },
     {
@@ -1834,13 +1895,21 @@ exports.getMonthlySalesAndDelivered = TryCatch(async (req, res, next) => {
     },
   ]);
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+
   // Step 6: Aggregate delivered count for current month (1st to current date)
   const currDelivered = await DispatchModel.aggregate([
     {
       $match: {
-        createdAt: { $gte: currStart, $lt: currEnd },
-        // dispatch_status: { $regex: "^Delivered$", $options: "i" }, // Case-insensitive match for "Delivered"
-        $expr: { $eq: ["$quantity", "$dispatch_qty"] },
+        $and: [
+          ...(adminFilter.$and || [adminFilter]),
+          {
+            createdAt: { $gte: currStart, $lt: currEnd },
+            // dispatch_status: { $regex: "^Delivered$", $options: "i" }, // Case-insensitive match for "Delivered"
+            $expr: { $eq: ["$quantity", "$dispatch_qty"] },
+          }
+        ]
       },
     },
     {
@@ -1855,9 +1924,14 @@ exports.getMonthlySalesAndDelivered = TryCatch(async (req, res, next) => {
   const prevDelivered = await DispatchModel.aggregate([
     {
       $match: {
-        createdAt: { $gte: prevStart, $lt: prevEnd },
-        // dispatch_status: { $regex: "^Delivered$", $options: "i" }, // Case-insensitive match for "Delivered"
-        $expr: { $eq: ["$quantity", "$dispatch_qty"] },
+        $and: [
+          ...(adminFilter.$and || [adminFilter]),
+          {
+            createdAt: { $gte: prevStart, $lt: prevEnd },
+            // dispatch_status: { $regex: "^Delivered$", $options: "i" }, // Case-insensitive match for "Delivered"
+            $expr: { $eq: ["$quantity", "$dispatch_qty"] },
+          }
+        ]
       },
     },
     {

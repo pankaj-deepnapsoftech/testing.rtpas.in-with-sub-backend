@@ -2,13 +2,19 @@ const { DispatchModel } = require("../models/Dispatcher");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 const Product = require("../models/product");
 const { Purchase } = require("../models/purchase");
+const { getAdminFilter, getAdminIdForCreation, canAccessRecord, cleanUpdateData } = require("../utils/adminFilter");
 
 exports.CreateDispatch = TryCatch(async (req, res) => {
   const data = req.body;
 
+  // Get admin filter to ensure we only check dispatches for this admin
+  const adminFilter = getAdminFilter(req.user);
 
   const find = await DispatchModel.find({
-    sales_order_id: data.sales_order_id,
+    $and: [
+      ...(adminFilter.$and || [adminFilter]),
+      { sales_order_id: data.sales_order_id }
+    ]
   });
 
   const remaningOrder = find.reduce((i, result) => i + result?.dispatch_qty, 0);
@@ -66,6 +72,7 @@ exports.CreateDispatch = TryCatch(async (req, res) => {
   const result = await DispatchModel.create({
     ...data,
     creator: req.user._id,
+    admin_id: getAdminIdForCreation(req.user),
     dispatch_date: data.dispatch_date || new Date(),
     dispatch_status: "Dispatch", // Set default status
   });
@@ -88,25 +95,34 @@ exports.GetAllDispatches = TryCatch(async (req, res) => {
   const limits = parseInt(limit) || 10;
   const skip = (pages - 1) * limits;
 
-  // Build filter object
-  const filter = {};
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+
+  // Build filter object - always include admin filter
+  // adminFilter already contains $and, so we extract its conditions
+  const filterConditions = adminFilter.$and ? [...adminFilter.$and] : [adminFilter];
 
   if (dispatch_status && dispatch_status !== "All") {
-    filter.dispatch_status = dispatch_status;
+    filterConditions.push({ dispatch_status: dispatch_status });
   }
 
   if (payment_status && payment_status !== "All") {
-    filter.payment_status = payment_status;
+    filterConditions.push({ payment_status: payment_status });
   }
 
   if (search) {
-    filter.$or = [
-      { merchant_name: { $regex: search, $options: 'i' } },
-      { item_name: { $regex: search, $options: 'i' } },
-      { sales_order_id: { $regex: search, $options: 'i' } },
-      { order_id: { $regex: search, $options: 'i' } }
-    ];
+    filterConditions.push({
+      $or: [
+        { merchant_name: { $regex: search, $options: 'i' } },
+        { item_name: { $regex: search, $options: 'i' } },
+        { sales_order_id: { $regex: search, $options: 'i' } },
+        { order_id: { $regex: search, $options: 'i' } }
+      ]
+    });
   }
+
+  // Use $and to ensure all conditions are met (admin filter + other filters)
+  const filter = filterConditions.length > 1 ? { $and: filterConditions } : adminFilter;
 
   const totalData = await DispatchModel.countDocuments(filter);
 
@@ -131,9 +147,15 @@ exports.GetDispatch = TryCatch(async (req, res) => {
   const limits = parseInt(limit) || 10;
   const skip = (pages - 1) * limits;
 
-  const totalData = await DispatchModel.countDocuments();
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+
+  const totalData = await DispatchModel.countDocuments(adminFilter);
 
   const data = await DispatchModel.aggregate([
+    {
+      $match: adminFilter
+    },
     {
       $lookup: {
         from: "production-processes",
@@ -216,6 +238,12 @@ exports.DeleteDispatch = TryCatch(async (req, res) => {
   if (!find) {
     throw new ErrorHandler("Data already Deleted", 400);
   }
+
+  // Check if user can access this dispatch
+  if (!canAccessRecord(req.user, find, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to delete this dispatch", 403);
+  }
+
   await DispatchModel.findByIdAndDelete(id);
   return res.status(200).json({
     message: "Data deleted Successful",
@@ -229,6 +257,11 @@ exports.UpdateDispatch = TryCatch(async (req, res) => {
   const existingDispatch = await DispatchModel.findById(id);
   if (!existingDispatch) {
     throw new ErrorHandler("Dispatch not found", 404);
+  }
+
+  // Check if user can access this dispatch
+  if (!canAccessRecord(req.user, existingDispatch, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this dispatch", 403);
   }
 
   if (data.dispatch_qty !== undefined && data.product_id) {
@@ -266,8 +299,11 @@ exports.UpdateDispatch = TryCatch(async (req, res) => {
     data.dispatch_status = "Dispatch Pending";
   }
 
+  // Ensure admin_id is not removed during update - preserve existing admin_id
+  const updateData = cleanUpdateData(data);
+
   // Update the dispatch record
-  const updatedDispatch = await DispatchModel.findByIdAndUpdate(id, data, {
+  const updatedDispatch = await DispatchModel.findByIdAndUpdate(id, updateData, {
     new: true,
   });
 
@@ -324,8 +360,10 @@ exports.SendFromProduction = async (req, res) => {
 
     // Create dispatch entry
     const { DispatchModel } = require("../models/Dispatcher");
+    const { getAdminIdForCreation } = require("../utils/adminFilter");
     const doc = await DispatchModel.create({
       creator: req.user?._id, // if you have auth
+      admin_id: getAdminIdForCreation(req.user),
       production_process_id, // Save production process reference
       delivery_status: "Dispatch",
       Sale_id: [], // Optional, keep for sales link
@@ -356,6 +394,11 @@ exports.UploadDeliveryProof = TryCatch(async (req, res) => {
   const dispatch = await DispatchModel.findById(id);
   if (!dispatch) {
     throw new ErrorHandler("Dispatch not found", 404);
+  }
+
+  // Check if user can access this dispatch
+  if (!canAccessRecord(req.user, dispatch, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to upload delivery proof for this dispatch", 403);
   }
 
   // Update dispatch with delivery proof information
@@ -390,6 +433,11 @@ exports.UploadInvoice = TryCatch(async (req, res) => {
     throw new ErrorHandler("Dispatch not found", 404);
   }
 
+  // Check if user can access this dispatch
+  if (!canAccessRecord(req.user, dispatch, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to upload invoice for this dispatch", 403);
+  }
+
   dispatch.invoice = {
     filename: req.file.filename,
     originalName: req.file.originalname,
@@ -414,6 +462,11 @@ exports.DownloadFile = TryCatch(async (req, res) => {
     throw new ErrorHandler("Dispatch not found", 404);
   }
 
+  // Check if user can access this dispatch
+  if (!canAccessRecord(req.user, dispatch, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to download files for this dispatch", 403);
+  }
+
   let fileData;
   if (type === "delivery-proof") {
     fileData = dispatch.delivery_proof;
@@ -434,10 +487,20 @@ exports.DownloadFile = TryCatch(async (req, res) => {
 });
 
 exports.Stats = TryCatch(async (req, res) => {
-  const totalDispatches = await DispatchModel.countDocuments();
-  const dispatchedCount = await DispatchModel.countDocuments({ dispatch_status: "Dispatch" });
-  const deliveredCount = await DispatchModel.countDocuments({ dispatch_status: "Delivered" });
-  const pendingCount = await DispatchModel.countDocuments({ dispatch_status: "Dispatch Pending" });
+  // Get admin filter to ensure each admin only sees their own statistics
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  const totalDispatches = await DispatchModel.countDocuments(adminFilter);
+  const dispatchedCount = await DispatchModel.countDocuments({ 
+    $and: [...adminFilterArray, { dispatch_status: "Dispatch" }] 
+  });
+  const deliveredCount = await DispatchModel.countDocuments({ 
+    $and: [...adminFilterArray, { dispatch_status: "Delivered" }] 
+  });
+  const pendingCount = await DispatchModel.countDocuments({ 
+    $and: [...adminFilterArray, { dispatch_status: "Dispatch Pending" }] 
+  });
   return res.status(200).json({
     message: "Dispatch statistics retrieved successfully",
     data: {
@@ -451,6 +514,19 @@ exports.Stats = TryCatch(async (req, res) => {
 
 exports.getDispatchQty = TryCatch(async (req, res) => {
   const { id } = req.params;
-  const data = await DispatchModel.find({ sales_order_id: id }).select("")
-  return
+  
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  
+  const data = await DispatchModel.find({ 
+    $and: [
+      ...(adminFilter.$and || [adminFilter]),
+      { sales_order_id: id }
+    ]
+  }).select("dispatch_qty");
+  
+  return res.status(200).json({
+    message: "Dispatch quantities retrieved successfully",
+    data,
+  });
 });

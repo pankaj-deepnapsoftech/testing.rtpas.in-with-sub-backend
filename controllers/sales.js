@@ -1,7 +1,7 @@
 const { AssinedModel } = require("../models/Assined-to.model");
 const { Purchase } = require("../models/purchase");
 const { TryCatch, ErrorHandler } = require("../utils/error");
-const { getAdminFilter, getAdminIdForCreation } = require("../utils/adminFilter");
+const { getAdminFilter, getAdminIdForCreation, canAccessRecord, cleanUpdateData } = require("../utils/adminFilter");
 
 const generateorderId = async () => {
   const lastParty = await Purchase.findOne().sort({ createdAt: -1 });
@@ -51,15 +51,18 @@ exports.unapproved = TryCatch(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 20;
   const skip = (page - 1) * limit;
-  const isSuper = !!req.user?.isSuper;
-  const hasApprovalPermission = Array.isArray(req.user?.role?.permissions)
-    ? req.user.role.permissions.includes("approval")
-    : false;
-  const canViewAllSales = isSuper || hasApprovalPermission;
-  const adminMatch = canViewAllSales ? {} : getAdminFilter(req.user);
+  
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
 
   const data = await Purchase.aggregate([
-    { $match: { approved: false, ...adminMatch } },
+    { $match: { 
+      $and: [
+        ...adminFilterArray,
+        { approved: false }
+      ]
+    } },
     {
       $lookup: {
         from: "products",
@@ -104,14 +107,21 @@ exports.unapproved = TryCatch(async (req, res) => {
 
 exports.approve = TryCatch(async (req, res) => {
   const { id } = req.params;
+  const sale = await Purchase.findById(id);
+  if (!sale) {
+    throw new ErrorHandler("Sale not found", 404);
+  }
+
+  // Check if user can access this sale
+  if (!canAccessRecord(req.user, sale, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to approve this sale", 403);
+  }
+
   const updated = await Purchase.findByIdAndUpdate(
     id,
     { approved: true },
     { new: true }
   );
-  if (!updated) {
-    throw new ErrorHandler("Sale not found", 404);
-  }
   return res.status(200).json({ success: true, message: "Sale approved" });
 });
 
@@ -120,7 +130,18 @@ exports.bulkApprove = TryCatch(async (req, res) => {
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new ErrorHandler("ids array is required", 400);
   }
-  await Purchase.updateMany({ _id: { $in: ids } }, { $set: { approved: true } });
+
+  // Get admin filter to ensure we only approve sales belonging to this admin
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  await Purchase.updateMany(
+    { 
+      _id: { $in: ids },
+      $and: adminFilterArray
+    }, 
+    { $set: { approved: true } }
+  );
   return res
     .status(200)
     .json({ success: true, message: `Approved ${ids.length} sale(s)` });
@@ -128,11 +149,27 @@ exports.bulkApprove = TryCatch(async (req, res) => {
 exports.update = TryCatch(async (req, res) => {
   const data = req.body;
   const { id } = req.params;
-  const find = await Purchase.findOne({ _id: id, ...getAdminFilter(req.user) });
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+  
+  const find = await Purchase.findOne({ 
+    _id: id,
+    $and: adminFilterArray
+  });
   if (!find) {
     throw new ErrorHandler("data not found", 400);
   }
-  await Purchase.findOneAndUpdate({ _id: id, ...getAdminFilter(req.user) }, data);
+
+  // Ensure admin_id is not removed during update - preserve existing admin_id
+  const updateData = cleanUpdateData(data);
+
+  await Purchase.findOneAndUpdate(
+    { 
+      _id: id,
+      $and: adminFilterArray
+    }, 
+    updateData
+  );
   return res.status(201).json({ message: "Purchase Order updated" });
 });
 
@@ -167,7 +204,13 @@ exports.Imagehandler = TryCatch(async (req, res) => {
     return res.status(400).json({ message: "Design file URL is required" });
   }
 
-  const find = await Purchase.findOne({ _id: id, ...getAdminFilter(req.user) });
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+  
+  const find = await Purchase.findOne({ 
+    _id: id,
+    $and: adminFilterArray
+  });
   if (!find) {
     return res.status(404).json({ message: "Sale not found" });
   }
@@ -190,11 +233,12 @@ exports.getAll = TryCatch(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 5;
   const skip = (page - 1) * limit;
-  const isSuper = !!req.user?.isSuper;
-  const adminMatch = isSuper ? {} : getAdminFilter(req.user);
+  
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
 
   const data = await Purchase.aggregate([
-    { $match: { ...adminMatch } }, // Show all sales (approved and unapproved) in Sales Management
+    { $match: adminFilter }, // Show all sales (approved and unapproved) in Sales Management, filtered by admin
     {
       $lookup: {
         from: "boms",
@@ -403,6 +447,16 @@ exports.AddToken = TryCatch(async (req, res) => {
     });
   }
 
+  const sale = await Purchase.findById(id);
+  if (!sale) {
+    throw new ErrorHandler("Sale not found", 404);
+  }
+
+  // Check if user can access this sale
+  if (!canAccessRecord(req.user, sale, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this sale", 403);
+  }
+
   await Purchase.findByIdAndUpdate(id, {
     token_amt,
     token_status: false,
@@ -416,14 +470,21 @@ exports.AddToken = TryCatch(async (req, res) => {
 
 exports.markProductionCompleted = TryCatch(async (req, res) => {
   const { id } = req.params;
+  const sale = await Purchase.findById(id);
+  if (!sale) {
+    throw new ErrorHandler("Sale not found", 404);
+  }
+
+  // Check if user can access this sale
+  if (!canAccessRecord(req.user, sale, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this sale", 403);
+  }
+
   const updated = await Purchase.findByIdAndUpdate(
     id,
     { salestatus: "Production Completed" },
     { new: true }
   );
-  if (!updated) {
-    throw new ErrorHandler("Sale not found", 404);
-  }
   return res.status(200).json({ success: true, message: "Order marked as production completed" });
 });
 
@@ -432,13 +493,22 @@ exports.getUpcomingSales = TryCatch(async (req, res) => {
   const limit = parseInt(req.query.limit) || 10;
   const skip = (page - 1) * limit;
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const data = await Purchase.aggregate([
     {
       $match: {
-        approved: true,
-        $or: [
-          { salestatus: { $ne: "Production Completed" } },
-          { salestatus: { $exists: false } }
+        $and: [
+          ...adminFilterArray,
+          {
+            approved: true,
+            $or: [
+              { salestatus: { $ne: "Production Completed" } },
+              { salestatus: { $exists: false } }
+            ]
+          }
         ]
       }
     },
@@ -536,10 +606,15 @@ exports.getUpcomingSales = TryCatch(async (req, res) => {
     .exec();
 
   const total = await Purchase.countDocuments({
-    approved: true,
-    $or: [
-      { salestatus: { $ne: "Production Completed" } },
-      { salestatus: { $exists: false } }
+    $and: [
+      ...adminFilterArray,
+      {
+        approved: true,
+        $or: [
+          { salestatus: { $ne: "Production Completed" } },
+          { salestatus: { $exists: false } }
+        ]
+      }
     ]
   });
 
@@ -560,8 +635,18 @@ exports.getOne = TryCatch(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 5;
   const skip = (page - 1) * limit;
+  
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+  
   const data = await Purchase.aggregate([
-    { $match: { user_id: id } },
+    { $match: { 
+      $and: [
+        ...adminFilterArray,
+        { user_id: id }
+      ]
+    } },
     {
       $lookup: {
         from: "boms",
@@ -747,6 +832,11 @@ exports.uploadinvoice = TryCatch(async (req, res) => {
       });
     }
 
+    // Check if user can access this sale
+    if (!canAccessRecord(req.user, find, "admin_id")) {
+      throw new ErrorHandler("You don't have permission to upload invoice for this sale", 403);
+    }
+
     const path = `https://rtpasbackend.deepmart.shop/images/${filename}`;
 
     await Purchase.findByIdAndUpdate(id, {
@@ -787,6 +877,11 @@ exports.Delivered = TryCatch(async (req, res) => {
       });
     }
 
+    // Check if user can access this sale
+    if (!canAccessRecord(req.user, data, "admin_id")) {
+      throw new ErrorHandler("You don't have permission to update this sale", 403);
+    }
+
     const path = `https://rtpasbackend.deepmart.shop/images/${filename}`;
     console.log("req.body.role=", req.body.role);
     if ((req.body.role = "Dispatcher")) {
@@ -817,10 +912,19 @@ exports.GetAllSalesData = TryCatch(async (req, res) => {
   limit = parseInt(limit) || 10;
   const skip = (page - 1) * limit;
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const session = await mongoose.startSession();
   session.startTransaction();
   let data = await Purchase.aggregate([
-    { $match: { salestatus: { $in: ["Production Completed", "Dispatch"] } } },
+    { $match: { 
+      $and: [
+        ...adminFilterArray,
+        { salestatus: { $in: ["Production Completed", "Dispatch"] } }
+      ]
+    } },
     {
       $lookup: {
         from: "parties",
@@ -899,7 +1003,12 @@ exports.GetAllSalesData = TryCatch(async (req, res) => {
 
   })
 
-  const totaldata = await Purchase.find({ salestatus: { $in: ["Production Completed", "Dispatch"] } }).countDocuments()
+  const totaldata = await Purchase.find({ 
+    $and: [
+      ...adminFilterArray,
+      { salestatus: { $in: ["Production Completed", "Dispatch"] } }
+    ]
+  }).countDocuments()
 
   res.status(200).json({
     data,
@@ -914,11 +1023,20 @@ exports.GetAllPendingSalesData = TryCatch(async (req, res) => {
   limit = parseInt(limit) || 10;
   const skip = (page - 1) * limit;
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const session = await mongoose.startSession();
   session.startTransaction()
 
   let data = await Purchase.aggregate([
-    { $match: { salestatus: { $in: ["Production Completed"] } } },
+    { $match: { 
+      $and: [
+        ...adminFilterArray,
+        { salestatus: { $in: ["Production Completed"] } }
+      ]
+    } },
     {
       $lookup: {
         from: "parties",
@@ -997,7 +1115,12 @@ exports.GetAllPendingSalesData = TryCatch(async (req, res) => {
 
   });
 
-  const totalPage = await Purchase.find({ salestatus: { $in: ["Production Completed"] } }).countDocuments();
+  const totalPage = await Purchase.find({ 
+    $and: [
+      ...adminFilterArray,
+      { salestatus: { $in: ["Production Completed"] } }
+    ]
+  }).countDocuments();
 
   res.status(200).json({
     data,
@@ -1012,12 +1135,21 @@ exports.GetAllCompletedData = TryCatch(async (req, res) => {
   limit = parseInt(limit) || 10;
   const skip = (page - 1) * limit;
 
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const session = await mongoose.startSession();
   session.startTransaction()
 
 
   const data = await Purchase.aggregate([
-    { $match: { salestatus: { $in: ["Dispatch"] } } },
+    { $match: { 
+      $and: [
+        ...adminFilterArray,
+        { salestatus: { $in: ["Dispatch"] } }
+      ]
+    } },
     {
       $lookup: {
         from: "parties",
@@ -1066,7 +1198,12 @@ exports.GetAllCompletedData = TryCatch(async (req, res) => {
 
   ]).sort({ _id: -1 }).skip(skip).limit(limit);
 
-  const totalPage = await Purchase.find({ salestatus: { $in: ["Dispatch"] } }).countDocuments();
+  const totalPage = await Purchase.find({ 
+    $and: [
+      ...adminFilterArray,
+      { salestatus: { $in: ["Dispatch"] } }
+    ]
+  }).countDocuments();
   res.status(200).json({
     data,
     totalPage: Math.ceil(totalPage / limit),
@@ -1077,9 +1214,18 @@ exports.GetAllCompletedData = TryCatch(async (req, res) => {
 
 
 exports.GetAllSalesReadyToDispatch = TryCatch(async (req, res) => {
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+  
   let data = await Purchase.aggregate([
     {
-      $match: { salestatus: { $ne: "Dispatch" }, approved: true }
+      $match: { 
+        $and: [
+          ...adminFilterArray,
+          { salestatus: { $ne: "Dispatch" }, approved: true }
+        ]
+      }
     },
     {
       $lookup: {
@@ -1169,6 +1315,16 @@ exports.GetAllSalesReadyToDispatch = TryCatch(async (req, res) => {
 exports.directSendToDispatch = TryCatch(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
+
+  const sale = await Purchase.findById(id);
+  if (!sale) {
+    throw new ErrorHandler("Sale not found", 404);
+  }
+
+  // Check if user can access this sale
+  if (!canAccessRecord(req.user, sale, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this sale", 403);
+  }
 
   const data = await Purchase.findByIdAndUpdate(
     id,

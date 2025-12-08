@@ -1,5 +1,6 @@
 const Resource = require("../models/resources");
 const { TryCatch, ErrorHandler } = require("../utils/error");
+const { getAdminFilter, getAdminIdForCreation, canAccessRecord, cleanUpdateData } = require("../utils/adminFilter");
 
 const slugify = require('slugify'); // npm install slugify
 
@@ -14,8 +15,17 @@ exports.create = TryCatch(async (req, res) => {
  
   const baseCode = resourceData.name.trim().substring(0, 3).toUpperCase();
 
+  // Get admin filter to ensure we only check resources for this admin
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const regex = new RegExp(`^${baseCode}(\\d{3})$`);
-  const latestResource = await Resource.find({ customId: { $regex: regex } })
+  const latestResource = await Resource.find({ 
+    $and: [
+      ...adminFilterArray,
+      { customId: { $regex: regex } }
+    ]
+  })
     .sort({ customId: -1 })
     .limit(1);
 
@@ -29,7 +39,7 @@ exports.create = TryCatch(async (req, res) => {
  
   const generatedId = `${baseCode}${nextNumber}`;
   resourceData.customId = generatedId;
-
+  resourceData.admin_id = getAdminIdForCreation(req.user);
 
   const createdResource = await Resource.create(resourceData);
 
@@ -56,6 +66,11 @@ exports.edit = TryCatch(async (req, res) => {
     throw new ErrorHandler("Resource not found", 404);
   }
 
+  // Check if user can access this resource
+  if (!canAccessRecord(req.user, resource, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to update this resource", 403);
+  }
+
   const updatedResource = await Resource.findByIdAndUpdate(
     { _id },
     { $set: { type, name, specification } },
@@ -79,6 +94,12 @@ exports.remove = TryCatch(async (req, res) => {
   if (!resource) {
     throw new ErrorHandler("Resource not found", 404);
   }
+
+  // Check if user can access this resource
+  if (!canAccessRecord(req.user, resource, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to delete this resource", 403);
+  }
+
   await resource.deleteOne();
   res.status(200).json({
     status: 200,
@@ -98,6 +119,12 @@ exports.details = TryCatch(async (req, res) => {
   if (!resource) {
     throw new ErrorHandler("Resource not found", 404);
   }
+
+  // Check if user can access this resource
+  if (!canAccessRecord(req.user, resource, "admin_id")) {
+    throw new ErrorHandler("You don't have permission to view this resource", 403);
+  }
+
     res.status(200).json({
         status: 200,
         success: true,
@@ -106,7 +133,10 @@ exports.details = TryCatch(async (req, res) => {
 });
 
 exports.all = TryCatch(async (req, res) => {
-  const resources = await Resource.find().sort({ createdAt: -1 });
+  // Get admin filter to ensure each admin only sees their own data
+  const adminFilter = getAdminFilter(req.user);
+  
+  const resources = await Resource.find(adminFilter).sort({ createdAt: -1 });
   res.status(200).json({
     status: 200,
     success: true,
