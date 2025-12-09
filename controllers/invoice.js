@@ -1,4 +1,5 @@
 const Invoice = require("../models/invoice");
+const { getAdminIdForCreation, getAdminFilter } = require("../utils/adminFilter");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 
 exports.create = TryCatch(async (req, res) => {
@@ -80,8 +81,12 @@ exports.create = TryCatch(async (req, res) => {
     invoiceData.balance = total; // Set balance equal to total initially
   }
 
-  const createdInvoice = await Invoice.create(invoiceData);
-
+  const adminId = getAdminIdForCreation(req.user);
+  const createdInvoice = await Invoice.create({
+    ...invoiceData,
+    creator: req.user._id,
+    admin_id: adminId
+  });
   res.status(201).json({
     status: 201,
     success: true,
@@ -179,7 +184,8 @@ exports.details = TryCatch(async (req, res) => {
 //   });
 // });
 exports.all = TryCatch(async (req, res) => {
-  const Invoices = await Invoice.find().populate([
+     const match = getAdminFilter(req.user);
+  const Invoices = await Invoice.find(match).populate([
     "creator",
     "buyer",
     "supplier",

@@ -109,6 +109,7 @@ exports.all = TryCatch(async (req, res) => {
     proforma_invoices: proformaInvoices,
   });
 });
+  
 
 exports.getNextInvoiceNumber = TryCatch(async (req, res) => {
   // Prevent misuse of the route with an _id parameter
