@@ -1,5 +1,5 @@
 const ProformaInvoice = require("../models/proforma-invoice");
-const { getAdminIdForCreation } = require("../utils/adminFilter");
+const { getAdminIdForCreation, getAdminFilter } = require("../utils/adminFilter");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 
 exports.create = TryCatch(async (req, res) => {
@@ -92,7 +92,9 @@ exports.details = TryCatch(async (req, res) => {
 });
 
 exports.all = TryCatch(async (req, res) => {
-  const proformaInvoices = await ProformaInvoice.find()
+  
+    const match = getAdminFilter(req.user);
+  const proformaInvoices = await ProformaInvoice.find(match)
     .sort({ createdAt: -1 }) // <-- Sort latest first
     .populate([
       { path: "creator", model: "User" },
