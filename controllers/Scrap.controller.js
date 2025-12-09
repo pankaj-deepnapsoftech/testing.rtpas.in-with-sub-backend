@@ -8,6 +8,7 @@ const {
 
 class ScrapMaterial {
   async createScrapMaterial(req, res) {
+   
     try {
       const data = req.body;
       const result = await ScrapModel.create({
