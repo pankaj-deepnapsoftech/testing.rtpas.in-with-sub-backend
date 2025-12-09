@@ -18,12 +18,11 @@ const ScrapSchema = new Schema(
     uom: { type: String, required: true },
   },
   { timestamps: true }
-); // <-- IMPORTANT
+);
 
 ScrapSchema.pre("save", async function (next) {
-  if (this.Scrap_id) return next(); // skip if already exists
+  if (this.Scrap_id) return next();
 
-  // Fetch last inserted scrap item
   const lastItem = await mongoose
     .model("Scrap-data")
     .findOne({})
