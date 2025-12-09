@@ -1,6 +1,7 @@
 const { PartiesModels } = require("../models/Parties");
 const PurchaseOrder = require("../models/Purchase-Order");
 const { TryCatch, ErrorHandler } = require("../utils/error");
+const { getAdminFilter } = require("../utils/adminFilter");
 const { generatePONumber } = require("../utils/generatePONumber");
 
 exports.create = TryCatch(async (req, res) => {
@@ -69,8 +70,16 @@ exports.getNextPONumber = TryCatch(async (req, res) => {
 });
 
 exports.allSuppliers = TryCatch(async (req, res) => {
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const sellers = await PartiesModels.find(
-    { parties_type: "Seller" },
+    {
+      $and: [
+        ...adminFilterArray,
+        { parties_type: "Seller" },
+      ],
+    },
     {
       _id: 1,
       cust_id: 1,
@@ -85,7 +94,7 @@ exports.allSuppliers = TryCatch(async (req, res) => {
       contact_number: 1,
       email_id: 1,
     }
-  );
+  ).sort({ updatedAt: -1 });
 
   const formatted = sellers.map((supplier) => ({
     id: supplier._id,
@@ -128,20 +137,31 @@ exports.getSupplierDetails = TryCatch(async (req, res) => {
     throw new ErrorHandler("Supplier ID is required", 400);
   }
 
-  const supplier = await PartiesModels.findById(supplierId, {
-    _id: 1,
-    cust_id: 1,
-    consignee_name: 1,
-    company_name: 1,
-    type: 1,
-    shipped_to: 1,
-    bill_to: 1,
-    shipped_gst_to: 1,
-    bill_gst_to: 1,
-    pan_no: 1,
-    contact_number: 1,
-    email_id: 1,
-  });
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  const supplier = await PartiesModels.findOne(
+    {
+      $and: [
+        ...adminFilterArray,
+        { _id: supplierId },
+      ],
+    },
+    {
+      _id: 1,
+      cust_id: 1,
+      consignee_name: 1,
+      company_name: 1,
+      type: 1,
+      shipped_to: 1,
+      bill_to: 1,
+      shipped_gst_to: 1,
+      bill_gst_to: 1,
+      pan_no: 1,
+      contact_number: 1,
+      email_id: 1,
+    }
+  );
 
   if (!supplier) {
     throw new ErrorHandler("Supplier not found", 404);
