@@ -302,10 +302,32 @@ exports.details = TryCatch(async (req, res) => {
 });
 
 exports.all = TryCatch(async (req, res) => {
-  const purchaseOrders = await PurchaseOrder.find({}).populate(
-    "creator",
-    "name email",
-  );
+  const adminId = req.user?.isSuper ? req.user._id : (req.user?.admin_id || req.user?._id);
+
+  const purchaseOrders = await PurchaseOrder.aggregate([
+    {
+      $lookup: {
+        from: "users",
+        localField: "creator",
+        foreignField: "_id",
+        as: "creator",
+        pipeline: [
+          { $project: { first_name: 1, last_name: 1, email: 1, admin_id: 1 } },
+        ],
+      },
+    },
+    { $unwind: { path: "$creator", preserveNullAndEmptyArrays: true } },
+    {
+      $match: {
+        $or: [
+          { "creator._id": adminId }, // super admin's own records
+          { "creator.admin_id": adminId }, // employees under this admin
+        ],
+      },
+    },
+    { $sort: { _id: -1 } },
+  ]);
+
   res.status(200).json({
     status: 200,
     success: true,
