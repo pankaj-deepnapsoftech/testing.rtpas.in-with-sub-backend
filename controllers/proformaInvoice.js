@@ -1,4 +1,5 @@
 const ProformaInvoice = require("../models/proforma-invoice");
+const { getAdminIdForCreation } = require("../utils/adminFilter");
 const { TryCatch, ErrorHandler } = require("../utils/error");
 
 exports.create = TryCatch(async (req, res) => {
@@ -6,10 +7,11 @@ exports.create = TryCatch(async (req, res) => {
   if (!proformaInvoice) {
     throw new ErrorHandler("Please provide all the fields", 400);
   }
-
+   const adminId = getAdminIdForCreation(req.user);
   const createdProformaInvoice = await ProformaInvoice.create({
     ...proformaInvoice,
     creator: req.user._id,
+    admin_id: adminId
   });
 
   res.status(200).json({

@@ -1,6 +1,11 @@
 const { Schema, model } = require("mongoose");
 
 const proformaInvoiceSchema = new Schema({
+    admin_id: {
+        type: Schema.Types.ObjectId,
+        ref: "User",
+        index: true,
+    },
     creator: {
         type: Schema.Types.ObjectId,
         ref: 'User',
