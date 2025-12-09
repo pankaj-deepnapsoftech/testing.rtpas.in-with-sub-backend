@@ -1,24 +1,25 @@
 const Store = require("../models/store");
-const csv = require('csvtojson');
-const fs = require('fs');
+const csv = require("csvtojson");
+const fs = require("fs");
 const { ErrorHandler, TryCatch } = require("../utils/error");
-const { getAdminFilter, getAdminIdForCreation } = require("../utils/adminFilter");
+const {
+  getAdminFilter,
+  getAdminIdForCreation,
+} = require("../utils/adminFilter");
 const { checkStoreCsvValidity } = require("../utils/checkStoreCsvValidity");
 
 exports.create = TryCatch(async (req, res) => {
   const storeDetails = req.body;
-  console.log("store1");
   if (!storeDetails) {
     throw new ErrorHandler("Please provide all the fields", 400);
   }
-  console.log("store2");
 
   const store = await Store.create({
     ...storeDetails,
     admin_id: getAdminIdForCreation(req.user),
     approved: req.user.isSuper,
   });
-console.log("store3");
+
   res.status(200).json({
     status: 200,
     success: true,
@@ -99,7 +100,10 @@ exports.details = TryCatch(async (req, res) => {
   });
 });
 exports.all = TryCatch(async (req, res) => {
-  const stores = await Store.find({ approved: true, ...getAdminFilter(req.user) }).sort({ updatedAt: -1 });
+  const stores = await Store.find({
+    approved: true,
+    ...getAdminFilter(req.user),
+  }).sort({ updatedAt: -1 });
   res.status(200).json({
     status: 200,
     success: true,
@@ -107,7 +111,10 @@ exports.all = TryCatch(async (req, res) => {
   });
 });
 exports.unapproved = TryCatch(async (req, res) => {
-  const stores = await Store.find({ approved: false, ...getAdminFilter(req.user) }).sort({ updatedAt: -1 });
+  const stores = await Store.find({
+    approved: false,
+    ...getAdminFilter(req.user),
+  }).sort({ updatedAt: -1 });
   res.status(200).json({
     status: 200,
     success: true,
@@ -121,18 +128,22 @@ exports.bulkUploadHandler = TryCatch(async (req, res) => {
 
   try {
     const response = await csv().fromFile(req.file.path);
-    
+
     fs.unlink(req.file.path, () => {});
 
     await checkStoreCsvValidity(response);
 
-    const shouldAutoApprove = req.user?.isSuper || 
-      (Array.isArray(req.user?.role?.permissions) && 
-       req.user.role.permissions.includes("approval"));
+    const shouldAutoApprove =
+      req.user?.isSuper ||
+      (Array.isArray(req.user?.role?.permissions) &&
+        req.user.role.permissions.includes("approval"));
 
-    const stores = response.map(store => ({
+    const adminId = getAdminIdForCreation(req.user);
+
+    const stores = response.map((store) => ({
       ...store,
-      approved: shouldAutoApprove
+      admin_id: adminId,
+      approved: shouldAutoApprove,
     }));
 
     const insertedStores = await Store.insertMany(stores);
@@ -147,6 +158,9 @@ exports.bulkUploadHandler = TryCatch(async (req, res) => {
     if (req.file && req.file.path) {
       fs.unlink(req.file.path, () => {});
     }
-    throw new ErrorHandler(error?.message || "Failed to process bulk upload", 400);
+    throw new ErrorHandler(
+      error?.message || "Failed to process bulk upload",
+      400
+    );
   }
 });
