@@ -1179,8 +1179,15 @@ exports.findFinishedGoodBom = TryCatch(async (req, res) => {
 });
 
 exports.unapprovedRawMaterialsForAdmin = TryCatch(async (req, res) => {
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  const adminBoms = await BOM.find({ $and: adminFilterArray }).select("_id");
+  const adminBomIds = adminBoms.map((b) => b._id);
+
   const unapprovedProducts = await BOMRawMaterial.find({
     approvedByAdmin: false,
+    bom: { $in: adminBomIds }
   })
 
     .sort({
@@ -1205,6 +1212,8 @@ exports.unapprovedRawMaterialsForAdmin = TryCatch(async (req, res) => {
     )[0];
 
     return {
+      bom_id: prod.bom._id,
+      admin_id: prod.bom.admin_id,
       bom_name: prod.bom._doc.bom_name,
 
       ...rm.item._doc,
@@ -1237,11 +1246,26 @@ exports.approveRawMaterialForAdmin = TryCatch(async (req, res) => {
     throw new ErrorHandler("Raw material id not provided", 400);
   }
 
+  const rawMaterial = await BOMRawMaterial.findById(_id).populate("bom");
+  if (!rawMaterial) {
+    throw new ErrorHandler("Raw material not found", 404);
+  }
+
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+  const allowedBom = await BOM.findOne({
+    $and: [
+      ...adminFilterArray,
+      { _id: rawMaterial.bom?._id }
+    ]
+  });
+  if (!allowedBom) {
+    throw new ErrorHandler("You don't have permission to approve this raw material", 403);
+  }
+
   const updatedRawMaterial = await BOMRawMaterial.findByIdAndUpdate(
     { _id },
-
     { approvedByAdmin: true },
-
     { new: true }
   );
 
@@ -1255,8 +1279,21 @@ exports.approveRawMaterialForAdmin = TryCatch(async (req, res) => {
 });
 
 exports.unapprovedRawMaterials = TryCatch(async (req, res) => {
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  const adminBoms = await BOM.find({
+    $and: [
+      ...adminFilterArray,
+      { production_process: { $exists: true } }
+    ]
+  }).select("_id admin_id bom_name production_process");
+
+  const adminBomIds = adminBoms.map((b) => b._id);
+
   const unapprovedProducts = await BOMRawMaterial.find({
     approvedByInventoryPersonnel: false,
+    bom: { $in: adminBomIds }
   })
 
     .sort({
@@ -1265,12 +1302,8 @@ exports.unapprovedRawMaterials = TryCatch(async (req, res) => {
 
     .populate({
       path: "bom",
-
-      // match: { production_process: { $exists: true } }, //new condition to filter BOMs with production_process
-
       populate: {
         path: "raw_materials",
-
         populate: {
           path: "item",
         },
@@ -1284,9 +1317,8 @@ exports.unapprovedRawMaterials = TryCatch(async (req, res) => {
 
     return {
       bom_id: prod.bom._id, // required to update status
-
+      admin_id: prod.bom.admin_id,
       bom_name: prod.bom.bom_name,
-
       bom_status:
         prod.bom.production_process_status || "raw material approval pending", // optional fallback
 
@@ -1462,8 +1494,13 @@ exports.getInventoryShortages = TryCatch(async (req, res) => {
 });
 
 exports.allRawMaterialsForInventory = TryCatch(async (req, res) => {
-  // Fetch all raw materials with proper population
-  const allRawMaterials = await BOMRawMaterial.find()
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  const adminBoms = await BOM.find({ $and: adminFilterArray }).select("_id");
+  const adminBomIds = adminBoms.map((b) => b._id);
+
+  const allRawMaterials = await BOMRawMaterial.find({ bom: { $in: adminBomIds } })
     .populate({
       path: "item",
       select:
@@ -1471,7 +1508,7 @@ exports.allRawMaterialsForInventory = TryCatch(async (req, res) => {
     })
     .populate({
       path: "bom",
-      select: "bom_name production_process",
+      select: "bom_name production_process admin_id",
       populate: [
         {
           path: "production_process",
@@ -1537,6 +1574,7 @@ exports.allRawMaterialsForInventory = TryCatch(async (req, res) => {
     results.push({
       _id: rm._id,
       bom_id: bom._id,
+      admin_id: bom.admin_id,
       bom_name: bom.bom_name,
       bom_status: productionProcess.status,
       production_process_id: productionProcess._id,
@@ -1964,6 +2002,7 @@ exports.getInventoryApprovalStatus = TryCatch(async (req, res) => {
       approved: rm.isInventoryApprovalClicked,
 
       isInventoryApprovalClicked: rm.isInventoryApprovalClicked,
+      admin_id: bom.admin_id,
     }));
 
     res.status(200).json({
