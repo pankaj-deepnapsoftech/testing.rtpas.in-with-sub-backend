@@ -113,7 +113,7 @@ exports.update = async (req, res) => {
   const { _id, status, bom } = req.body;
   
   // Check if user can access this production process
-  const productionProcess = await ProductionProcess.findById(_id);
+  let productionProcess = await ProductionProcess.findById(_id);
   if (!productionProcess) {
     throw new ErrorHandler("Production Process doesn't exist", 400);
   }
@@ -1058,4 +1058,3 @@ exports.bulkDelete = TryCatch(async (req, res) => {
     message: `${result.deletedCount} production processes deleted successfully`,
   });
 });
-
