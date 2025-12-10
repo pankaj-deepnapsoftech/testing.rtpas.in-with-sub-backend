@@ -1431,35 +1431,32 @@ exports.bomsGroupedByWeekDay = TryCatch(async (req, res) => {
 
 exports.getInventoryShortages = TryCatch(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
-
   const limit = parseInt(req.query.limit) || 100;
- 
   const skip = (page - 1) * limit;
 
-  const shortages = await InventoryShortage.find()
+  // Apply admin scoping using BOM.admin_id
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
 
+  const adminBoms = await BOM.find({ $and: adminFilterArray }).select("_id");
+  const adminBomIds = adminBoms.map((b) => b._id);
+
+  const shortages = await InventoryShortage.find({ bom: { $in: adminBomIds } })
     .populate({
       path: "item",
-
       select: "name current_stock updated_stock price updated_price",
     })
-
     .populate({
       path: "bom",
-
-      select: "bom_name approved", 
+      select: "bom_name approved",
     })
-
     .sort({ updatedAt: -1 })
-
     .skip(skip)
-
     .limit(limit);
 
   const formattedShortages = shortages.map((shortage) => ({
-   
     bom_name: shortage.bom?.bom_name || "Unknown BOM",
-    approved: shortage.bom?.approved ,
+    approved: shortage.bom?.approved,
     item_name: shortage.item?.name || "Unknown Item",
     item: shortage.item?._id || null,
     shortage_quantity: shortage.shortage_quantity,
@@ -1478,17 +1475,11 @@ exports.getInventoryShortages = TryCatch(async (req, res) => {
 
   res.status(200).json({
     status: 200,
-
     success: true,
-
     message: "Inventory shortages fetched successfully",
-
     count: formattedShortages.length,
-
     page,
-
     limit,
-
     shortages: formattedShortages,
   });
 });
