@@ -1595,13 +1595,25 @@ exports.financialSummary = TryCatch(async (req, res) => {
     console.log("No specific date filter applied - returning all data");
   }
 
+  // Admin filter for scoping data per admin
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
+  // Helper to combine admin filter and date condition
+  const buildMatch = () => {
+    if (dateCondition && Object.keys(dateCondition).length > 0) {
+      return { $and: [...adminFilterArray, dateCondition] };
+    }
+    return adminFilter;
+  };
+
   // ========== PROFORMA INVOICE SUMMARY ==========
   const totalProformaInvoices = await ProformaInvoice.countDocuments(
-    dateCondition
+    buildMatch()
   );
 
   const proformaAmountAgg = await ProformaInvoice.aggregate([
-    { $match: dateCondition },
+    { $match: buildMatch() },
     {
       $group: {
         _id: null,
@@ -1614,7 +1626,7 @@ exports.financialSummary = TryCatch(async (req, res) => {
 
   // Get status-wise breakdown for ProformaInvoices
   const proformaStatusAgg = await ProformaInvoice.aggregate([
-    { $match: dateCondition },
+    { $match: buildMatch() },
     {
       $group: {
         _id: "$status",
@@ -1625,10 +1637,10 @@ exports.financialSummary = TryCatch(async (req, res) => {
   ]);
 
   // ========== INVOICE SUMMARY ==========
-  const totalInvoices = await Invoice.countDocuments(dateCondition);
+  const totalInvoices = await Invoice.countDocuments(buildMatch());
 
   const invoiceAmountAgg = await Invoice.aggregate([
-    { $match: dateCondition },
+    { $match: buildMatch() },
     {
       $group: {
         _id: null,
@@ -1641,7 +1653,7 @@ exports.financialSummary = TryCatch(async (req, res) => {
 
   // Get status-wise breakdown for Invoices
   const invoiceStatusAgg = await Invoice.aggregate([
-    { $match: dateCondition },
+    { $match: buildMatch() },
     {
       $group: {
         _id: "$status",
@@ -1652,10 +1664,10 @@ exports.financialSummary = TryCatch(async (req, res) => {
   ]);
 
   // ========== PAYMENT SUMMARY ==========
-  const totalPayments = await Payment.countDocuments(dateCondition);
+  const totalPayments = await Payment.countDocuments(buildMatch());
 
   const paymentAmountAgg = await Payment.aggregate([
-    { $match: dateCondition },
+    { $match: buildMatch() },
     {
       $group: {
         _id: null,
@@ -1668,7 +1680,7 @@ exports.financialSummary = TryCatch(async (req, res) => {
 
   // Get status-wise breakdown for Payments
   const paymentStatusAgg = await Payment.aggregate([
-    { $match: dateCondition },
+    { $match: buildMatch() },
     {
       $group: {
         _id: "$status",
@@ -1682,7 +1694,7 @@ exports.financialSummary = TryCatch(async (req, res) => {
   let monthlyBreakdown = [];
   if (view === "yearly" && year) {
     monthlyBreakdown = await Invoice.aggregate([
-      { $match: dateCondition },
+      { $match: buildMatch() },
       {
         $group: {
           _id: {
@@ -1729,7 +1741,7 @@ exports.financialSummary = TryCatch(async (req, res) => {
   let dailyBreakdown = [];
   if (view === "weekly") {
     dailyBreakdown = await Invoice.aggregate([
-      { $match: dateCondition },
+      { $match: buildMatch() },
       {
         $group: {
           _id: {
@@ -2128,6 +2140,9 @@ exports.dashboardWithFilter = TryCatch(async (req, res) => {
   };
 
   // ========== MERCHANT CHART DATA ==========
+  const adminFilter = getAdminFilter(req.user);
+  const adminFilterArray = adminFilter.$and || [adminFilter];
+
   const merchantPipeline = [
     {
       $group: {
@@ -2149,7 +2164,11 @@ exports.dashboardWithFilter = TryCatch(async (req, res) => {
 
   if (Object.keys(dateCondition).length > 0) {
     merchantPipeline.unshift({
-      $match: dateCondition,
+      $match: { $and: [...adminFilterArray, dateCondition] },
+    });
+  } else {
+    merchantPipeline.unshift({
+      $match: adminFilter,
     });
   }
 
