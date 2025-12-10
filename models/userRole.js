@@ -9,7 +9,7 @@ const userRoleSchema = new Schema(
   {
     role: {
       type: String,
-      required: [true, "Role is a required field"], 
+      required: [true, "Role is a required field"],
       minlength: [2, "Role must be at least 2 characters long"],
       maxlength: [20, "Role cannot exceed 20 characters"],
     },
@@ -26,25 +26,33 @@ const userRoleSchema = new Schema(
           "user role",
           "employee",
           "inventory",
-          "direct",'indirect','wip','store',"approval","scrap",
+          "direct",
+          "indirect",
+          "wip",
+          "store",
+          "approval",
+          "scrap",
           "direct",
           "store",
           "approval",
           "production",
-          "bom","production-status","pre-production",
-          'machine-status',
-          'resources',
-          'sensors',
-          'accounts',
+          "bom",
+          "production-status",
+          "pre-production",
+          "machine-status",
+          "resources",
+          "sensors",
+          "accounts",
           "procurement",
           "purchase-order",
-          "proforma-invoice","taxInvoice","payment",
+          "proforma-invoice",
+          "taxInvoice",
+          "payment",
           "sales",
           "task",
           "bom",
           "merchant",
-          "dispatch"
-
+          "dispatch",
         ],
         message:
           "Permissions should be one of the following: product, store, approval, agent, bom",
@@ -76,6 +84,8 @@ userRoleSchema.set("toJSON", {
   },
 });
 
-const UserRole = model("User-Role", userRoleSchema);
 userRoleSchema.index({ role: 1, admin_id: 1 }, { unique: true });
+
+const UserRole = model("User-Role", userRoleSchema);
+
 module.exports = UserRole;
