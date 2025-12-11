@@ -76,8 +76,9 @@ exports.GetParties = TryCatch(async (req, res) => {
 
   const match = getAdminFilter(req.user);
 
-  const totalData = await PartiesModels.find(match).countDocuments();
-  const data = await PartiesModels.find(match)
+  const totalData = await PartiesModels.find({ ...match, approved: true }).countDocuments();
+
+  const data = await PartiesModels.find({ ...match, approved: true })
     .sort({ _id: -1 })
     .skip(skip)
     .limit(limits);
@@ -88,6 +89,7 @@ exports.GetParties = TryCatch(async (req, res) => {
     totalData,
   });
 });
+
 
 exports.DeleteParties = TryCatch(async (req, res) => {
   const { id } = req.params;
