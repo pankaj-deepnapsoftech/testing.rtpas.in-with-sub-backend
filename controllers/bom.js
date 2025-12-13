@@ -1353,15 +1353,39 @@ exports.approveRawMaterial = TryCatch(async (req, res) => {
 
   if (!_id) throw new ErrorHandler("Raw material id not provided", 400);
 
+  const rawMaterialDoc = await BOMRawMaterial.findById(_id).populate("item");
+  if (!rawMaterialDoc) throw new ErrorHandler("Raw material not found", 404);
+
+  const product = await Product.findById(rawMaterialDoc.item);
+  if (!product) throw new ErrorHandler("Product doesn't exist", 400);
+
+  const pendingApprovals = await BOMRawMaterial.find({
+    item: rawMaterialDoc.item,
+    approvedByInventoryPersonnel: true,
+    isOutForInventoryClicked: false,
+  }).select("quantity");
+
+  const reservedQty = pendingApprovals.reduce(
+    (sum, rm) => sum + (Number(rm.quantity) || 0),
+    0
+  );
+
+  const requestedQty = Number(rawMaterialDoc.quantity) || 0;
+  const availableStock = Number(product.current_stock) || 0;
+
+  if (reservedQty + requestedQty > availableStock) {
+    throw new ErrorHandler(
+      `Insufficient stock. Available: ${availableStock - reservedQty}, Requested: ${requestedQty}`,
+      400
+    );
+  }
+
   const updatedRawMaterial = await BOMRawMaterial.findByIdAndUpdate(
     _id,
-
     {
       approvedByInventoryPersonnel: true,
-
-      isInventoryApprovalClicked: true, // ✅ mark clicked for this raw material
+      isInventoryApprovalClicked: true,
     },
-
     { new: true }
   );
 
@@ -1582,6 +1606,7 @@ exports.allRawMaterialsForInventory = TryCatch(async (req, res) => {
       bom_name: bom.bom_name,
       bom_status: productionProcess.status,
       production_process_id: productionProcess._id,
+      item: item._id,
       product_id: item.product_id || "",
       name: item.name || "",
       inventory_category: item.inventory_category || "",

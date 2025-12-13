@@ -22,6 +22,7 @@ const {
   clearUpdatedStock,
   removeFromInventoryShortages,
   updateShortageQuantity,
+  updateIndividualShortage,
   
   updateStockAndShortages,
   availabilQty,
@@ -88,6 +89,13 @@ router.put(
   "/update-shortage-quantity",
   isAuthenticated,
   updateShortageQuantity
+);
+
+// Update a specific shortage entry (targeted BOM shortage resolution)
+router.put(
+  "/update-individual-shortage",
+  isAuthenticated,
+  updateIndividualShortage
 );
 
 
