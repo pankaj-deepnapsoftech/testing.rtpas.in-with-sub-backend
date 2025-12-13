@@ -147,9 +147,8 @@ class ScrapMaterial {
         });
       }
       const data = excelToJson(file?.path);
-      const dataWithId = await assignScrapIds(data);
-
       const adminId = getAdminIdForCreation(req.user);
+      const dataWithId = await assignScrapIds(data, adminId);
       const dataWithAdminId = dataWithId.map((item) => ({
         ...item,
         admin_id: adminId,

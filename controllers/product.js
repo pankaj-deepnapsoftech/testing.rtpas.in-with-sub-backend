@@ -29,13 +29,14 @@ exports.create = TryCatch(async (req, res) => {
   if (!productDetails) {
     throw new ErrorHandler("Please provide product details", 400);
   }
-  const generatedId = await generateProductId(productDetails.category);
+  const adminId = getAdminIdForCreation(req.user);
+  const generatedId = await generateProductId(productDetails.category, adminId);
 
   const product = await Product.create({
     ...productDetails,
     name: capitalizeWords(productDetails.name),
     product_id: generatedId,
-    admin_id: getAdminIdForCreation(req.user),
+    admin_id: adminId,
     approved: req.user.isSuper,
   });
   // console.log(product);
@@ -64,7 +65,7 @@ exports.update = TryCatch(async (req, res) => {
   // Check if category is being changed
   let newProductId = product.product_id; // Default: retain existing product_id
   if (productDetails.category && productDetails.category !== product.category) {
-    newProductId = await generateProductId(productDetails.category);
+    newProductId = await generateProductId(productDetails.category, product.admin_id);
   }
 
   // Check if stock has changed to update change_type and quantity_changed

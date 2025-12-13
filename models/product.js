@@ -21,8 +21,7 @@ const productSchema = new Schema(
     product_id: {
       type: String,
       required: [true, "Product Id is a required field"],
-      unique: true,
-      inded:true
+      index: true
     },
     uom: {
       type: String,
@@ -215,4 +214,5 @@ productSchema.pre('findByIdAndUpdate', function(next) {
 });
 
 const Product = model("Product", productSchema);
+productSchema.index({ admin_id: 1, product_id: 1 }, { unique: true });
 module.exports = Product;

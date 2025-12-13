@@ -4,7 +4,7 @@ const bomSchema = new Schema(
   {
     bom_id: {
       type: String,
-      unique: true,
+      index: true,
       required: [true, "BOM ID is a required field"],
     },
     admin_id: { type: Schema.Types.ObjectId, ref: "User", index: true },
@@ -127,5 +127,6 @@ const bomSchema = new Schema(
   }
 );
 
+bomSchema.index({ admin_id: 1, bom_id: 1 }, { unique: true });
 const BOM = model("BOM", bomSchema);
 module.exports = BOM;
