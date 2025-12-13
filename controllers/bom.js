@@ -364,20 +364,14 @@ exports.update = TryCatch(async (req, res) => {
     bom.finished_good.supporting_doc = finished_good?.supporting_doc;
   }
 
-  // ============================================
-  // RAW MATERIALS VALIDATION & STOCK CHECK
-  // ============================================
   const shortages = [];
 
   if (raw_materials && raw_materials.length > 0) {
-    // Fetch all products in one query
     const productIds = raw_materials.map((m) => m.item);
     const products = await Product.find({ _id: { $in: productIds } });
 
-    // Create product lookup map for O(1) access
     const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
-    // Validate all products exist
     const missingProducts = raw_materials.filter(
       (m) => !productMap.has(m.item)
     );
@@ -385,7 +379,6 @@ exports.update = TryCatch(async (req, res) => {
       throw new ErrorHandler("Some products don't exist", 400);
     }
 
-    // Group materials by item and calculate total quantities
     const groupedMaterials = raw_materials.reduce((acc, material) => {
       const product = productMap.get(material.item);
       if (!product) return acc;
@@ -402,7 +395,6 @@ exports.update = TryCatch(async (req, res) => {
       return acc;
     }, {});
 
-    // Check stock availability
     Object.values(groupedMaterials).forEach(
       ({ product, totalQuantity, item }) => {
         const availableStock = product.current_stock || 0;
@@ -421,9 +413,6 @@ exports.update = TryCatch(async (req, res) => {
     );
   }
 
-  // ============================================
-  // SCRAP MATERIALS VALIDATION
-  // ============================================
   if (scrap_materials && scrap_materials.length > 0) {
     const scrapItemIds = scrap_materials
       .filter((m) => m.item)
@@ -446,11 +435,7 @@ exports.update = TryCatch(async (req, res) => {
     }
   }
 
-  // ============================================
-  // RAW MATERIALS UPDATE & SHORTAGE TRACKING
-  // ============================================
   if (raw_materials && raw_materials.length > 0) {
-    // Fetch existing shortages for this BOM
     const existingShortages = await InventoryShortage.find({ bom: bom._id });
     const existingShortagesMap = new Map(
       existingShortages.map((shortage) => [
@@ -462,16 +447,13 @@ exports.update = TryCatch(async (req, res) => {
       ])
     );
 
-    // Delete existing shortages
     await InventoryShortage.deleteMany({ bom: bom._id });
 
-    // Process raw materials (update existing or create new)
     const bulkRawMaterialOps = [];
     const newRawMaterials = [];
 
     raw_materials.forEach((material) => {
       if (material._id) {
-        // Update existing
         bulkRawMaterialOps.push({
           updateOne: {
             filter: { _id: material._id },
@@ -632,7 +614,12 @@ exports.update = TryCatch(async (req, res) => {
   }
 
   // Handle BOM approval
-  if (approved) {
+  // If approved is explicitly set to false, reset approval (requires re-approval)
+  if (approved === false) {
+    bom.approved = false;
+    bom.approved_by = null;
+    bom.approval_date = null;
+  } else if (approved === true) {
     const hasApprovalPermission =
       req.user.isSuper ||
       (Array.isArray(req.user?.role?.permissions) &&
@@ -641,6 +628,7 @@ exports.update = TryCatch(async (req, res) => {
     if (hasApprovalPermission) {
       bom.approved_by = req.user._id;
       bom.approved = true;
+      bom.approval_date = new Date();
     } else {
       bom.approved = false;
     }
@@ -1507,7 +1495,7 @@ exports.getInventoryShortages = TryCatch(async (req, res) => {
       shortage.total_required &&
       shortage.total_required !== shortage.shortage_quantity,
   }));
-   const newData = formattedShortages.filter((item) => item.approved === true);
+  const newData = formattedShortages.filter((item) => item.approved === true);
   res.status(200).json({
     status: 200,
     success: true,
