@@ -182,9 +182,9 @@ exports.create = TryCatch(async (req, res) => {
     cost,
   });
 
-  // Generate auto BOM ID
-
-  const bomId = await generateBomId();
+  // Generate auto BOM ID (per-admin)
+  const adminId = getAdminIdForCreation(req.user);
+  const bomId = await generateBomId(adminId);
 
   const bom = await BOM.create({
     bom_id: bomId,
@@ -206,7 +206,7 @@ exports.create = TryCatch(async (req, res) => {
     approved: req.user.isSuper,
 
     creator: req.user._id,
-    admin_id: getAdminIdForCreation(req.user),
+    admin_id: adminId,
 
     other_charges,
 

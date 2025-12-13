@@ -1,19 +1,22 @@
 const BOM = require("../models/bom");
 const Counter = require("../models/counter");
 
-const generateBomId = async () => {
+const generateBomId = async (adminId) => {
   const prefix = "BOM";
 
   // Atomically find & increment
+  const counterKey = adminId ? `bom_id_${adminId}` : "bom_id";
   let counter = await Counter.findByIdAndUpdate(
-    { _id: "bom_id" },
+    { _id: counterKey },
     { $inc: { seq: 1 } },
     { new: true, upsert: true }
   );
 
   // If this is the very first time, sync with DB
   if (counter.seq === 1) {
-    const lastBom = await BOM.findOne({ bom_id: { $regex: /^BOM/ } })
+    const match = { bom_id: { $regex: /^BOM/ } };
+    if (adminId) match.admin_id = adminId;
+    const lastBom = await BOM.findOne(match)
       .sort({ createdAt: -1 });
 
     if (lastBom) {
@@ -21,7 +24,7 @@ const generateBomId = async () => {
 
       // Reset counter higher than existing
       counter = await Counter.findByIdAndUpdate(
-        { _id: "bom_id" },
+        { _id: counterKey },
         { seq: numericPart + 1 },
         { new: true }
       );

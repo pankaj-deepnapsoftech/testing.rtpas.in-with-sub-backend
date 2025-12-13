@@ -30,15 +30,19 @@ function generateDynamicPrefix(category) {
   }
 }
 
-async function generateProductId(category) {
+async function generateProductId(category, adminId) {
   try {
     if (!category) throw new Error("Category is required for ID generation");
 
     const normalized = category.toLowerCase();
     const prefix = generateDynamicPrefix(normalized);
 
-    const regex = new RegExp(`^${prefix}(\\d{3})$`, "i");
-    const existing = await Product.find({ product_id: { $regex: regex } }, { product_id: 1 });
+    const regex = new RegExp(`^${prefix}-\\d{3}$`, "i");
+    const query = { product_id: { $regex: regex } };
+    if (adminId) {
+      query.admin_id = adminId;
+    }
+    const existing = await Product.find(query, { product_id: 1 });
 
     let maxSeq = 0;
     for (const item of existing) {
@@ -51,7 +55,7 @@ async function generateProductId(category) {
 
     const nextSeq = maxSeq + 1;
     const padded = String(nextSeq).padStart(3, "0");
-    const newId = `${prefix}${padded}`;
+    const newId = `${prefix}-${padded}`;
 
     return newId;
 
@@ -165,11 +169,10 @@ function generateCustomerPrefix(party) {
 }
 
 
-async function assignScrapIds(jsonData) {
+async function assignScrapIds(jsonData, adminId) {
 
-    // get last item from DB
     const lastItem = await ScrapModel
-        .findOne({})
+        .findOne({ admin_id: adminId })
         .sort({ _id: -1 })
         .lean();
 

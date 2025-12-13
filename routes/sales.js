@@ -64,7 +64,7 @@ router.patch("/delivery/:id", Imageupload.single("delivery"), Delivered);
 router.route("/sales-dispatch-all").get(isAuthenticated,GetAllSalesData);
 router.route("/sales-dispatch-pending").get(isAuthenticated,GetAllPendingSalesData);
 router.route("/sales-dispatch-completed").get(isAuthenticated,GetAllCompletedData);
-router.route("/get-all-order-pending").get(GetAllSalesReadyToDispatch)
+router.route("/get-all-order-pending").get(isAuthenticated, GetAllSalesReadyToDispatch)
 
 module.exports = router;
 //

@@ -28,6 +28,7 @@ const ResourceRoutes = require("./routes/resources");
 const DeviceDataRoutes = require('./routes/deviceData.routes');
 const {ScrapRoutes} = require("./routes/Scrap.routes");
 const subscriptionRoutes = require("./routes/subscription");
+const contactRoutes = require("./routes/contact");
 
 const app = express();
 const server = http.createServer(app);
@@ -203,6 +204,7 @@ app.use('/api/purchase-order', PurchaseOrderRoutes);
 app.use("/api/resources", ResourceRoutes);
 app.use("/api/scrap", ScrapRoutes);
 app.use("/api/subscription", subscriptionRoutes);
+app.use("/api/contact", contactRoutes);
 app.use(globalErrorHandler);
 
 server.listen(process.env.PORT, '0.0.0.0', () => {
