@@ -25,19 +25,38 @@ exports.create = TryCatch(async (req, res) => {
     const shipped_to = agent.address_line1 || "";
     const bill_gst_to = agent.gst_number || "";
     const shipped_gst_to = agent.gst_number || "";
-
-    const prefix = (type === "Company" && company_name
-      ? company_name.trim().substring(0, 2).toUpperCase()
-      : (consignee_name[0] || "CU").trim().substring(0, 2).toUpperCase());
-    const lastParty = await PartiesModels.findOne({ cust_id: { $regex: `^${prefix}` } }).sort({ createdAt: -1 });
+    
+    const User = require("../models/user");
+    const adminUser = await User.findById(adminId).select("cpny_name first_name");
+    const baseName =
+      (adminUser?.cpny_name && adminUser.cpny_name.trim()) ||
+      (adminUser?.first_name && adminUser.first_name.trim()) ||
+      "AD";
+    const prefix = baseName.substring(0, 2).toUpperCase();
+    const mongoose = require('mongoose');
+    const adminId =
+      req.user?._id instanceof mongoose.Types.ObjectId
+        ? req.user._id
+        : new mongoose.Types.ObjectId(req.user?._id);
+    const lastParty = await PartiesModels.findOne({ admin_id: adminId, cust_id: { $regex: `^${prefix}` } }).sort({ createdAt: -1 });
     let nextId = 1;
     if (lastParty) {
       const lastId = lastParty.cust_id.replace(prefix, "");
       nextId = Number(lastId) + 1;
     }
-    const cust_id = `${prefix}${nextId.toString().padStart(3, "0")}`;
+    let cust_id = `${prefix}${nextId.toString().padStart(3, "0")}`;
+    // Resolve rare duplicates by incrementing until free
+    let attempts = 0;
+    while (attempts < 1000) {
+      // Ensure uniqueness per admin
+      const existsCust = await PartiesModels.findOne({ admin_id: adminId, cust_id });
+      if (!existsCust) break;
+      nextId += 1;
+      cust_id = `${prefix}${nextId.toString().padStart(3, "0")}`;
+      attempts += 1;
+    }
 
-    const exists = await PartiesModels.findOne({ company_name, parties_type });
+    const exists = await PartiesModels.findOne({ company_name, parties_type, admin_id: adminId });
     if (!exists) {
       await PartiesModels.create({
         cust_id,
@@ -52,6 +71,7 @@ exports.create = TryCatch(async (req, res) => {
         company_name,
         parties_type,
         contact_person_name: agent.name || "",
+        admin_id: adminId,
       });
     }
   }
@@ -94,18 +114,37 @@ exports.update = TryCatch(async (req, res) => {
     const bill_gst_to = agent.gst_number || "";
     const shipped_gst_to = agent.gst_number || "";
 
-    const prefix = (type === "Company" && company_name
-      ? company_name.trim().substring(0, 2).toUpperCase()
-      : (consignee_name[0] || "CU").trim().substring(0, 2).toUpperCase());
-    const lastParty = await PartiesModels.findOne({ cust_id: { $regex: `^${prefix}` } }).sort({ createdAt: -1 });
+    const User = require("../models/user");
+    const adminUser = await User.findById(adminId).select("cpny_name first_name");
+    const baseName =
+      (adminUser?.cpny_name && adminUser.cpny_name.trim()) ||
+      (adminUser?.first_name && adminUser.first_name.trim()) ||
+      "AD";
+    const prefix = baseName.substring(0, 2).toUpperCase();
+    const mongoose = require('mongoose');
+    const adminId =
+      req.user?._id instanceof mongoose.Types.ObjectId
+        ? req.user._id
+        : new mongoose.Types.ObjectId(req.user?._id);
+    const lastParty = await PartiesModels.findOne({ admin_id: adminId, cust_id: { $regex: `^${prefix}` } }).sort({ createdAt: -1 });
     let nextId = 1;
     if (lastParty) {
       const lastId = lastParty.cust_id.replace(prefix, "");
       nextId = Number(lastId) + 1;
     }
-    const cust_id = `${prefix}${nextId.toString().padStart(3, "0")}`;
+    let cust_id = `${prefix}${nextId.toString().padStart(3, "0")}`;
+    // Resolve rare duplicates by incrementing until free
+    let attempts = 0;
+    while (attempts < 1000) {
+      // Ensure uniqueness per admin
+      const existsCust = await PartiesModels.findOne({ admin_id: adminId, cust_id });
+      if (!existsCust) break;
+      nextId += 1;
+      cust_id = `${prefix}${nextId.toString().padStart(3, "0")}`;
+      attempts += 1;
+    }
 
-    const exists = await PartiesModels.findOne({ company_name, parties_type });
+    const exists = await PartiesModels.findOne({ company_name, parties_type, admin_id: adminId });
     if (!exists) {
       await PartiesModels.create({
         cust_id,
@@ -120,6 +159,7 @@ exports.update = TryCatch(async (req, res) => {
         company_name,
         parties_type,
         contact_person_name: agent.name || "",
+        admin_id: adminId,
       });
     }
   }

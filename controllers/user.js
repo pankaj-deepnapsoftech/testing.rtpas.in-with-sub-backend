@@ -63,7 +63,8 @@ exports.create = TryCatch(async (req, res) => {
 
       const latestSubscription = await SubscriptionPayment.findOne({ userId: adminObjectId })
         .sort({ createdAt: -1 });
-      const allowedUsers = Number(latestSubscription?.allowedUsers || 0);
+      const isFreeTrial = latestSubscription?.plan === "Free Trial";
+      const allowedUsers = isFreeTrial ? 1 : Number(latestSubscription?.allowedUsers || 0);
 
       const adminEmployeeCount = await User.countDocuments({
         isSuper: false,
@@ -164,6 +165,8 @@ exports.create = TryCatch(async (req, res) => {
             userId: user._id,
             endDate: next7Days,
             razorpayPaymentId: user._id.toString(),
+            plan: "Free Trial",
+            allowedUsers: 1,
           },
         ],
         { session }

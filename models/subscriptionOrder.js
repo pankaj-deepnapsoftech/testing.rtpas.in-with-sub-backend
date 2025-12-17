@@ -10,7 +10,7 @@ const SubscriptionOrderSchema = new Schema({
   status: { type: String, enum: ['created', 'paid', 'failed'], default: 'created' },
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date },
-  period: { type: String, enum: ['month', 'year',"week"], default: 'week' },
+  period: { type: String, enum: ['month', 'quarter', 'half_year', 'year'], default: 'month' },
   allowedUsers: { type: Number, default: 0 },
 }, { timestamps: true });
 

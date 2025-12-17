@@ -13,9 +13,10 @@ exports.globalErrorHandler = (err, req, res, next)=>{
     }
     else if(err.name === "MongoServerError" && err.code === 11000){
         let message = '';
+        const kv = err.keyValue || {};
+        const dupField = Object.keys(kv)[0];
         if(err.message.includes('email')){
             message = err.message;
-            // console.log(err)
         } 
         else if(err.message.includes('phone')){
             message = "Phone No. is already registered";
@@ -31,6 +32,21 @@ exports.globalErrorHandler = (err, req, res, next)=>{
         }
         else if(err.message.includes('role')){
             message = "Role is already created";
+        }
+        else if(err.message.includes('razorpayOrderId')){
+            message = "Payment order already exists";
+        }
+        else if(err.message.includes('razorpayPaymentId')){
+            message = "Payment has been recorded already";
+        }
+        else if(err.message.includes('employeeId')){
+            message = "Employee ID already exists";
+        }
+        else if(err.message.includes('cust_id')){
+            message = "Customer ID already exists";
+        }
+        else if(dupField){
+            message = `${dupField} is already registered`;
         }
         else{
             message = "A unique constraint error occurred";

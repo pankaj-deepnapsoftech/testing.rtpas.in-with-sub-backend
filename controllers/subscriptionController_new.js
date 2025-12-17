@@ -28,6 +28,10 @@ exports.createOrder = TryCatch(async (req, res) => {
 
   if (period === 'year') {
     endDate.setFullYear(endDate.getFullYear() + 1);
+  } else if (period === 'quarter') {
+    endDate.setMonth(endDate.getMonth() + 3);
+  } else if (period === 'half_year') {
+    endDate.setMonth(endDate.getMonth() + 6);
   } else {
     endDate.setMonth(endDate.getMonth() + 1);
   }
@@ -179,6 +183,10 @@ exports.renewSubscription = TryCatch(async (req, res) => {
   const renewalEndDate = new Date(renewalStartDate);
   if (renewalPeriod === 'year') {
     renewalEndDate.setFullYear(renewalEndDate.getFullYear() + 1);
+  } else if (renewalPeriod === 'quarter') {
+    renewalEndDate.setMonth(renewalEndDate.getMonth() + 3);
+  } else if (renewalPeriod === 'half_year') {
+    renewalEndDate.setMonth(renewalEndDate.getMonth() + 6);
   } else {
     renewalEndDate.setMonth(renewalEndDate.getMonth() + 1);
   }

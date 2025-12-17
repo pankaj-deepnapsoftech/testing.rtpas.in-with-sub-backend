@@ -12,7 +12,7 @@ const SubscriptionPaymentSchema = new Schema({
   status: { type: String, enum: ['paid'], default: 'paid' },
   startDate: { type: Date, default: Date.now },
   endDate: { type: Date },
-  period: { type: String, enum: ['month', 'year'], default: 'month' },
+  period: { type: String, enum: ['month', 'quarter', 'half_year', 'year'], default: 'month' },
   allowedUsers:{type:Number,default:0}
 }, { timestamps: true });
 

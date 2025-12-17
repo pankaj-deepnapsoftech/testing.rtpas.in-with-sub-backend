@@ -1064,7 +1064,7 @@ exports.autoBom = TryCatch(async (req, res) => {
       bom: undefined,
     };
   });
-
+  
   // ✅ Generate BOM ID for the new auto-created BOM
 
   const bomId = await generateBomId();

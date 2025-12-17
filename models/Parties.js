@@ -2,7 +2,7 @@ const { Schema, model } = require("mongoose");
 
 const PartiesSchema = new Schema(
   {
-    cust_id: { type: String, unique: true },
+    cust_id: { type: String },
     consignee_name: { type: [String], trim: true },
     // gst_add: { type: String, trim: true },
     // gst_in: { type: [String], trim: true },
@@ -22,6 +22,9 @@ const PartiesSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// Ensure customer ID uniqueness per admin
+PartiesSchema.index({ admin_id: 1, cust_id: 1 }, { unique: true });
 
 module.exports.PartiesModels = model("Parties", PartiesSchema);
 
