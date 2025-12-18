@@ -550,6 +550,7 @@ exports.update = TryCatch(async (req, res) => {
             update: {
               $set: {
                 item: material.item,
+                scrap_id: material?._id,
                 description: material?.description,
                 quantity: material.quantity,
                 total_part_cost: material?.total_part_cost,
@@ -1064,7 +1065,7 @@ exports.autoBom = TryCatch(async (req, res) => {
       bom: undefined,
     };
   });
-  
+
   // ✅ Generate BOM ID for the new auto-created BOM
 
   const bomId = await generateBomId();
@@ -1363,7 +1364,9 @@ exports.approveRawMaterial = TryCatch(async (req, res) => {
 
   if (reservedQty + requestedQty > availableStock) {
     throw new ErrorHandler(
-      `Insufficient stock. Available: ${availableStock - reservedQty}, Requested: ${requestedQty}`,
+      `Insufficient stock. Available: ${
+        availableStock - reservedQty
+      }, Requested: ${requestedQty}`,
       400
     );
   }
