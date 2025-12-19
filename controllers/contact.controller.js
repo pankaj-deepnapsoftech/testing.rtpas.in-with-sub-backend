@@ -89,3 +89,11 @@ exports.all = TryCatch(async (req, res) => {
     limit,
   });
 });
+
+exports.getAllContacts = TryCatch(async (req, res) => {
+  const contacts = await ContactQuery.find({}).sort({ createdAt: -1 });
+  res.status(200).json({
+    success: true,
+    data: contacts,
+  });
+});

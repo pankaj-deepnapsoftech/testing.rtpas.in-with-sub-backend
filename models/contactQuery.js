@@ -11,7 +11,7 @@ const ContactQuerySchema = new Schema(
     message: { type: String, default: "" },
     plan: {
       type: String,
-      enum: ["KONTROLIX", "RTPAS", "Enterprise", "Custom", "SOPAS"],
+      enum: ["KONTROLIX", "RTPAS", "Enterprise", "Custom", "SOPAS", "Contact"],
       required: true,
     },
     source: { type: String, default: "landing" },

@@ -7,48 +7,19 @@ const { getAdminFilter, getAdminIdForCreation, canAccessRecord, cleanUpdateData 
 exports.CreateDispatch = TryCatch(async (req, res) => {
   const data = req.body;
 
-  // Get admin filter to ensure we only check dispatches for this admin
   const adminFilter = getAdminFilter(req.user);
-
-  const find = await DispatchModel.find({
-    $and: [
-      ...(adminFilter.$and || [adminFilter]),
-      { sales_order_id: data.sales_order_id }
-    ]
-  });
-
-  const remaningOrder = find.reduce((i, result) => i + result?.dispatch_qty, 0);
-
-
-
-  if (find[0]?.quantity - remaningOrder < data?.dispatch_qty) {
-    throw new ErrorHandler("Dispatch qty is not valid according to order", 400);
-  }
-
-  // if (find) {
-  //   if(find?.quantity - find.dispatch_qty < data?.dispatch_qty){
-  //      throw new ErrorHandler("Dispatch qty is not valid according to order", 400);
-  //   }
-  //   const result = await DispatchModel.findOneAndUpdate(
-  //     { _id: find._id },
-  //     { $inc: { dispatch_qty: data.dispatch_qty } },
-  //     { new: true }
-  //   );
-
-
-  //   if (result?.quantity == result?.dispatch_qty) {
-  //     await Purchase.findByIdAndUpdate(result?.sales_order_id, { salestatus: "Dispatch" });
-  //   }
-
-  //   return res.status(201).json({
-  //     message: "Dispatch created successfully, stock updated",
-  //     data: result
-  //   });
-  // }
-
 
   if (!data.sales_order_id) {
     throw new ErrorHandler("Sales order ID is required", 400);
+  }
+
+  const purchase = await Purchase.findById(data.sales_order_id);
+  if (!purchase) {
+    throw new ErrorHandler("Sale not found", 404);
+  }
+
+  if (purchase.salestatus === "Dispatch") {
+    throw new ErrorHandler("Duplicate dispatch attempt for an already dispatched order", 409);
   }
 
   if (!data.dispatch_qty || data.dispatch_qty <= 0) {
@@ -58,6 +29,20 @@ exports.CreateDispatch = TryCatch(async (req, res) => {
   const product = await Product.findById(data.product_id);
   if (!product) {
     throw new ErrorHandler("Product not found", 404);
+  }
+
+  const existingDispatches = await DispatchModel.find({
+    $and: [
+      ...(adminFilter.$and || [adminFilter]),
+      { sales_order_id: data.sales_order_id }
+    ]
+  }).select("dispatch_qty");
+
+  const alreadyDispatchedQty = existingDispatches.reduce((acc, d) => acc + (parseInt(d.dispatch_qty) || 0), 0);
+  const remainingQty = (parseInt(purchase.product_qty) || 0) - alreadyDispatchedQty;
+
+  if (data.dispatch_qty > remainingQty) {
+    throw new ErrorHandler(`Dispatch qty exceeds remaining quantity. Remaining: ${remainingQty}`, 400);
   }
 
   if (product.current_stock < data.dispatch_qty) {
@@ -74,7 +59,14 @@ exports.CreateDispatch = TryCatch(async (req, res) => {
     creator: req.user._id,
     admin_id: getAdminIdForCreation(req.user),
     dispatch_date: data.dispatch_date || new Date(),
-    dispatch_status: "Dispatch", // Set default status
+    dispatch_status: "Dispatch",
+  });
+
+  console.info("Dispatch created", {
+    sales_order_id: String(data.sales_order_id),
+    dispatch_id: String(result._id),
+    dispatch_qty: data.dispatch_qty,
+    product_id: String(data.product_id),
   });
 
   res.status(201).json({
@@ -83,9 +75,15 @@ exports.CreateDispatch = TryCatch(async (req, res) => {
     updated_stock: product.current_stock,
   });
 
-
-  if (result?.quantity - remaningOrder === result?.dispatch_qty) {
-    await Purchase.findByIdAndUpdate(result?.sales_order_id, { salestatus: "Dispatch" });
+  const newTotal = alreadyDispatchedQty + (parseInt(data.dispatch_qty) || 0);
+  const orderQty = parseInt(purchase.product_qty) || 0;
+  if (newTotal >= orderQty) {
+    await Purchase.findByIdAndUpdate(data.sales_order_id, { salestatus: "Dispatch" });
+    console.info("Sale marked dispatched", {
+      sales_order_id: String(data.sales_order_id),
+      total_dispatched: newTotal,
+      order_qty: orderQty,
+    });
   }
 });
 
@@ -354,11 +352,24 @@ exports.SendFromProduction = async (req, res) => {
       });
     }
 
-    // ✅ Update production process status
+    if (proc.status === "dispatched") {
+      return res.status(409).json({
+        success: false,
+        message: "Production process already dispatched",
+      });
+    }
+
+    const existing = await DispatchModel.findOne({ production_process_id });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "Duplicate dispatch attempt for this production process",
+      });
+    }
+
     proc.status = "dispatched";
     await proc.save();
 
-    // Create dispatch entry
     const { DispatchModel } = require("../models/Dispatcher");
     const { getAdminIdForCreation } = require("../utils/adminFilter");
     const doc = await DispatchModel.create({
@@ -366,7 +377,13 @@ exports.SendFromProduction = async (req, res) => {
       admin_id: getAdminIdForCreation(req.user),
       production_process_id, // Save production process reference
       delivery_status: "Dispatch",
+      dispatch_status: "Dispatch",
       Sale_id: [], // Optional, keep for sales link
+    });
+
+    console.info("Production dispatched", {
+      production_process_id: String(production_process_id),
+      dispatch_id: String(doc._id),
     });
 
     return res.status(200).json({

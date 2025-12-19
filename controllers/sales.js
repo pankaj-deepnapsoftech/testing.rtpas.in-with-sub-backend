@@ -497,17 +497,13 @@ exports.getUpcomingSales = TryCatch(async (req, res) => {
   const adminFilter = getAdminFilter(req.user);
   const adminFilterArray = adminFilter.$and || [adminFilter];
 
-  const data = await Purchase.aggregate([
+  const data1 = await Purchase.aggregate([
     {
       $match: {
         $and: [
           ...adminFilterArray,
           {
-            approved: true,
-            $or: [
-              { salestatus: { $ne: "Production Completed" } },
-              { salestatus: { $exists: false } }
-            ]
+            approved: true
           }
         ]
       }
@@ -588,6 +584,7 @@ exports.getUpcomingSales = TryCatch(async (req, res) => {
         party: 1,
         product_id: 1,
         product_qty: 1,
+        salestatus: 1,
         price: 1,
         GST: 1,
         total_price: 1,
@@ -609,14 +606,13 @@ exports.getUpcomingSales = TryCatch(async (req, res) => {
     $and: [
       ...adminFilterArray,
       {
-        approved: true,
-        $or: [
-          { salestatus: { $ne: "Production Completed" } },
-          { salestatus: { $exists: false } }
-        ]
+        approved: true
       }
     ]
   });
+  
+
+  const data = data1.filter((item) => item.salestatus !== "Dispatch");
 
   return res.status(200).json({
     success: true,
@@ -1326,11 +1322,21 @@ exports.directSendToDispatch = TryCatch(async (req, res) => {
     throw new ErrorHandler("You don't have permission to update this sale", 403);
   }
 
+  if (sale.salestatus === "Dispatch") {
+    throw new ErrorHandler("Duplicate dispatch attempt for this sales order", 409);
+  }
+
   const data = await Purchase.findByIdAndUpdate(
     id,
     { salestatus: status, approved: true },
     { new: true }
   );
+
+  console.info("Sale moved to dispatch", {
+    sales_order_id: String(id),
+    previous_status: sale.salestatus || null,
+    new_status: status,
+  });
 
   res.status(200).json({
     success: true,
