@@ -701,9 +701,6 @@ exports.details = TryCatch(async (req, res) => {
           path: "scrap_materials",
           populate: {
             path: "item",
-            populate: {
-              path: "store",
-            },
           },
         },
       ],

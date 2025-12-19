@@ -74,11 +74,15 @@ class ScrapMaterial {
     try {
       const { id } = req.params;
       const data = req.body;
+      console.log("id",id)
+      console.log("data",data)
       const result = await ScrapModel.findOneAndUpdate(
         { _id: id, ...getAdminFilter(req.user) },
         data,
         { new: true }
       );
+     console.log("result",result)
+
       if (!result) {
         return res.status(400).json({
           message: "Scrap material not found or not authorized",
