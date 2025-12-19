@@ -11,7 +11,7 @@ const productionProcessSchema = new Schema(
     item: {
       type: Schema.Types.ObjectId,
       ref: "Product",
-      required: [true, "Item is a required field"],
+      // required: [true, "Item is a required field"],
     },
     bom: {
       type: Schema.Types.ObjectId,
@@ -89,7 +89,7 @@ const productionProcessSchema = new Schema(
           item: {
             type: Schema.Types.ObjectId,
             ref: "Product",
-            required: [true, "Item is a required field"],
+            // required: [true, "Item is a required field"],
           },
           estimated_quantity: {
             type: Number,
@@ -113,7 +113,7 @@ const productionProcessSchema = new Schema(
           item: {
             type: Schema.Types.ObjectId,
             ref: "Product",
-            required: [true, "Item is a required field"],
+            // required: [true, "Item is a required field"],
           },
           estimated_quantity: {
             type: Number,
