@@ -2,10 +2,15 @@ const { Schema, model } = require("mongoose");
 
 const inventoryShortageSchema = new Schema(
   {
-    bom: {
-      type: Schema.Types.ObjectId,
-      ref: "BOM",
-      required: true,
+    // bom: {
+    //   type: Schema.Types.ObjectId,
+    //   ref: "BOM",
+    //   required: true,
+    // },
+    approved: {
+      type: Boolean,
+      default: false,
+      required:true
     },
     raw_material: {
       type: Schema.Types.ObjectId,
