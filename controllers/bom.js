@@ -613,6 +613,12 @@ exports.update = TryCatch(async (req, res) => {
   if (total_cost) {
     bom.total_cost = total_cost;
   }
+  
+  if (approved !== true) {
+    bom.approved = false;
+    bom.approved_by = null;
+    bom.approval_date = null;
+  }
 
   // Handle BOM approval
   // If approved is explicitly set to false, reset approval (requires re-approval)
