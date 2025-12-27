@@ -613,7 +613,7 @@ exports.update = TryCatch(async (req, res) => {
   if (total_cost) {
     bom.total_cost = total_cost;
   }
-  
+
   if (approved !== true) {
     bom.approved = false;
     bom.approved_by = null;
@@ -643,17 +643,18 @@ exports.update = TryCatch(async (req, res) => {
 
   if (bom.approved === true) {
     for (let item of bom?.raw_materials) {
-      const data = await InventoryShortage.findOne({ raw_material: item._id, approved: false, is_resolved:false });
-
+      const data = await InventoryShortage.findOne({ item: item?.item?._id, approved: true, is_resolved: false });
       if (data) {
-        await InventoryShortage.findOneAndUpdate({ item: data.item, approved: true, is_resolved: false }, {
+
+        const prev = await InventoryShortage.findOneAndDelete({ raw_material: item?._id, approved: false, is_resolved: false });
+        await InventoryShortage.findByIdAndUpdate(data._id, {
           $inc: {
-            shortage_quantity: data.shortage_quantity,
-            original_shortage_quantity: data.original_shortage_quantity
+            shortage_quantity: prev.shortage_quantity,
+            original_shortage_quantity: prev.original_shortage_quantity
           }
         })
       } else {
-        await InventoryShortage.findOneAndUpdate({ raw_material: item._id, approved: false }, {
+        await InventoryShortage.findOneAndUpdate({ raw_material: item._id, approved: false, is_resolved: false }, {
           approved: true
         })
       }
@@ -1492,7 +1493,7 @@ exports.getInventoryShortages = TryCatch(async (req, res) => {
   const adminBoms = await BOM.find({ $and: adminFilterArray }).select("_id");
   const adminBomIds = adminBoms.map((b) => b._id);
 
-  const shortages = await InventoryShortage.find()
+  const shortages = await InventoryShortage.find({ approved: true ,is_resolved:false})
     .populate({
       path: "item",
       select: "name current_stock updated_stock price updated_price",
@@ -1501,26 +1502,25 @@ exports.getInventoryShortages = TryCatch(async (req, res) => {
     .skip(skip)
     .limit(limit);
 
-  // const formattedShortages = shortages.map((shortage) => ({
-  //   _id: shortage._id,
-  //   bom_name: shortage.bom?.bom_name || "Unknown BOM",
-  //   approved: shortage.bom?.approved,
-  //   item_name: shortage.item?.name || "Unknown Item",
-  //   item: shortage.item?._id || null,
-  //   shortage_quantity: shortage.shortage_quantity,
-  //   total_required: shortage.total_required || shortage.shortage_quantity,
-  //   available_stock:
-  //     shortage.available_stock || shortage.item?.current_stock || 0,
-  //   current_stock: shortage.item?.current_stock || 0,
-  //   updated_stock: shortage.item?.updated_stock || null,
-  //   current_price: shortage.item?.price || 0,
-  //   updated_price: shortage.item?.updated_price || null,
-  //   updated_at: shortage.updatedAt,
-  //   is_grouped:
-  //     shortage.total_required &&
-  //     shortage.total_required !== shortage.shortage_quantity,
-  // }));
-  const newData = shortages.filter((item) => item.approved === true);
+  const formattedShortages = shortages.map((shortage) => ({
+    _id: shortage._id,
+    // bom_name: shortage.bom?.bom_name || "Unknown BOM",
+    approved: shortage.approved,
+    item_name: shortage.item?.name || "Unknown Item",
+    item: shortage.item?._id || null,
+    shortage_quantity: shortage.shortage_quantity,
+    total_required: shortage.total_required || shortage.shortage_quantity,
+    available_stock:
+      shortage.available_stock || shortage.item?.current_stock || 0,
+    current_stock: shortage.item?.current_stock || 0,
+    updated_stock: shortage.item?.updated_stock || null,
+    current_price: shortage.item?.price || 0,
+    updated_price: shortage.item?.updated_price || null,
+    updated_at: shortage.updatedAt,
+    is_grouped:
+      shortage.total_required &&
+      shortage.total_required !== shortage.shortage_quantity,
+  }));
   res.status(200).json({
     status: 200,
     success: true,
@@ -1528,7 +1528,7 @@ exports.getInventoryShortages = TryCatch(async (req, res) => {
     count: shortages.length,
     page,
     limit,
-    shortages: newData,
+    shortages: formattedShortages,
   });
 });
 

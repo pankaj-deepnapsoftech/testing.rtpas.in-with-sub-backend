@@ -1321,7 +1321,7 @@ exports.updateIndividualShortage = TryCatch(async (req, res) => {
       product._id,
       {
         current_stock: currentStock + stockToAdd,
-        updated_stock: (product.updated_stock || 0) + stockToAdd,
+        updated_stock:  stockToAdd,
       },
       { new: true }
     );
